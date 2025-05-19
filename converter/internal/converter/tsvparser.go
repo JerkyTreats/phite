@@ -1,0 +1,136 @@
+// Package converter provides functionality for parsing TSV files containing genetic
+// SNP data and converting them into structured JSON format. The parser handles
+// various validation scenarios and provides detailed error messages for invalid
+// input formats.
+package converter
+
+import (
+	"encoding/csv"
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/JerkyTreats/PHITE/converter/internal/models"
+	"github.com/JerkyTreats/PHITE/converter/pkg/logger"
+)
+
+// TSVParser is a parser for TSV files containing genetic SNP data.
+// It converts the TSV format into a structured JSON format with groupings of SNPs.
+type TSVParser struct {
+	inputFile string
+}
+
+// NewTSVParser creates a new TSVParser instance with the specified input file.
+// The input file should be a TSV file with the following columns:
+// Topic, Group, Gene, RS ID, Allele, Subject Genotype, Notes
+func NewTSVParser(inputFile string) *TSVParser {
+	return &TSVParser{
+		inputFile: inputFile,
+	}
+}
+
+// Parse reads and parses the TSV file into a structured JSON format.
+// The input TSV should have the following columns:
+// Topic, Group, Gene, RS ID, Allele, Subject Genotype, Notes
+//
+// The parser performs the following operations:
+// 1. Validates the input file exists and can be read
+// 2. Reads all records from the TSV file
+// 3. Skips the header row
+// 4. Groups SNPs by their Group field
+// 5. For each SNP:
+//    - Validates record format (must have 7 columns)
+//    - Skips SNPs with blank or "--" genotypes
+//    - Determines genotype match (None/Partial/Full)
+// 6. Returns a ConversionResult containing all valid SNPs grouped by their Group
+//
+// Returns:
+// - *models.ConversionResult: The parsed and structured SNP data
+// - error: If any errors occur during parsing
+//
+// Possible errors:
+// - os.ErrNotExist: If the input file does not exist
+// - io.EOF: If the file is empty
+// - csv.ParseError: If the file cannot be parsed as TSV
+// - fmt.Errorf: For invalid record formats or other parsing errors
+func (p *TSVParser) Parse() (*models.ConversionResult, error) {
+	file, err := os.Open(p.inputFile)
+	if err != nil {
+		logger.Error(err, "failed to open file")
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.Comma = '\t' // TSV format
+
+	records, err := reader.ReadAll()
+	if err != nil {
+		logger.Error(err, "failed to read TSV")
+		return nil, fmt.Errorf("failed to read TSV: %w", err)
+	}
+
+	// Skip header
+	if len(records) == 0 {
+		logger.Error(nil, "empty file")
+		return nil, fmt.Errorf("empty file")
+	}
+	records = records[1:]
+
+	// Create map to group SNPs by Group
+	groupings := make(map[string]*models.Grouping)
+
+	var hasErrors bool
+	var errorRecords []string
+	for _, record := range records {
+		if len(record) != 7 {
+			hasErrors = true
+			errorRecords = append(errorRecords, fmt.Sprintf("Record with %d columns: %v", len(record), record))
+			continue
+		}
+
+		group := record[1] // Group column
+		topic := record[0] // Topic column
+
+		// Create new grouping if it doesn't exist
+		if _, exists := groupings[group]; !exists {
+			groupings[group] = &models.Grouping{
+				Topic: topic,
+				Name:  group,
+			}
+		}
+
+		snp := &models.SNP{
+			Gene:   record[2],
+			RSID:   record[3],
+			Allele: record[4],
+			Notes:  record[6],
+			Subject: models.Subject{
+				Genotype: record[5],
+				Match:    models.DetermineMatch(record[5], record[4]),
+			},
+		}
+
+		// Skip SNPs with blank or "--" genotypes
+		if snp.Subject.Genotype == "--" || snp.Subject.Genotype == "" {
+			logger.Info("skipping SNP with invalid genotype", "genotype", snp.Subject.Genotype)
+			continue
+		}
+
+		groupings[group].SNP = append(groupings[group].SNP, *snp)
+	}
+
+	// Convert map to slice
+	var result models.ConversionResult
+	for _, grouping := range groupings {
+		result.Groupings = append(result.Groupings, *grouping)
+	}
+
+	if hasErrors {
+		logger.Error(nil, "some records were skipped due to invalid format")
+		return nil, fmt.Errorf("invalid records found in TSV: %s", strings.Join(errorRecords, "; "))
+	}
+
+	logger.Info("parsing completed successfully", "groupings", len(result.Groupings))
+	return &result, nil
+}

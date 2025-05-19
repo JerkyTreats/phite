@@ -1,0 +1,20 @@
+{
+  "component": "converter",
+  "output_directories": [
+    "outputs/drafts",
+    "outputs/design"
+  ],
+  "required_files": [
+    "README.md",
+    "constraints.json"
+  ],
+  "technical_requirements": {
+    "input_format": "SNP data files",
+    "output_format": "structured health information",
+    "processing_requirements": [
+      "Data validation",
+      "Error handling",
+      "Performance optimization"
+    ]
+  }
+}

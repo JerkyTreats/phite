@@ -1,0 +1,129 @@
+package converter
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+func TestParseValidTSV(t *testing.T) {
+	// Get absolute path to test file
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("Could not get caller information")
+	}
+	testDir := filepath.Dir(filename)
+	testFile := filepath.Join(testDir, "testdata", "sample.tsv")
+
+	parser := NewTSVParser(testFile)
+	result, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Verify we got one grouping
+	if len(result.Groupings) != 1 {
+		t.Errorf("Expected 1 grouping, got %d", len(result.Groupings))
+	}
+
+	// Verify the grouping details
+	grouping := result.Groupings[0]
+	if grouping.Topic != "Nutrients – Vitamins and Minerals" {
+		t.Errorf("Expected topic 'Nutrients – Vitamins and Minerals', got %s", grouping.Topic)
+	}
+	if grouping.Name != "MTHFR" {
+		t.Errorf("Expected name 'MTHFR', got %s", grouping.Name)
+	}
+
+	// Verify we got 4 SNPs (one was skipped due to "--" genotype)
+	if len(grouping.SNP) != 4 {
+		t.Errorf("Expected 4 SNPs, got %d", len(grouping.SNP))
+	}
+
+	// Verify SNP details
+	snp := grouping.SNP[0]
+	if snp.Gene != "MTHFR C677T" {
+		t.Errorf("Expected gene 'MTHFR C677T', got %s", snp.Gene)
+	}
+	if snp.RSID != "rs1801133" {
+		t.Errorf("Expected RSID 'rs1801133', got %s", snp.RSID)
+	}
+	if snp.Allele != "A" {
+		t.Errorf("Expected allele 'A', got %s", snp.Allele)
+	}
+	if snp.Subject.Genotype != "AG" {
+		t.Errorf("Expected genotype 'AG', got %s", snp.Subject.Genotype)
+	}
+	if snp.Subject.Match != "Partial" {
+		t.Errorf("Expected match 'Partial', got %s", snp.Subject.Match)
+	}
+
+	// Verify full match SNP
+	fullMatchSNP := grouping.SNP[3]
+	if fullMatchSNP.Subject.Genotype != "AA" {
+		t.Errorf("Expected genotype 'AA', got %s", fullMatchSNP.Subject.Genotype)
+	}
+	if fullMatchSNP.Subject.Match != "Full" {
+		t.Errorf("Expected match 'Full', got %s", fullMatchSNP.Subject.Match)
+	}
+}
+
+func TestParseInvalidTSV(t *testing.T) {
+	// Create a temporary invalid TSV file
+	tempFile, err := os.CreateTemp("", "invalid_*.tsv")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	// Write invalid TSV data (wrong number of columns)
+	testRecord := "Foo\tBar\tBaz\tQux\tQuux\tCorge"
+	_, err = tempFile.WriteString("Topic\tGroup\tGene\tRS ID\tAllele\tSubject Genotype\n" + testRecord)
+	if err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+
+	parser := NewTSVParser(tempFile.Name())
+	_, err = parser.Parse()
+	if err == nil {
+		t.Fatal("Expected error for invalid TSV format")
+	}
+	if !strings.Contains(err.Error(), "invalid records found in TSV") {
+		t.Errorf("Expected invalid records error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Record with 6 columns") {
+		t.Errorf("Expected error to contain record column count, got: %v", err)
+	}
+	// Check that each field is present in the error message
+	fields := []string{"Foo", "Bar", "Baz", "Qux", "Quux", "Corge"}
+	for _, field := range fields {
+		if !strings.Contains(err.Error(), field) {
+			t.Errorf("Expected error to contain field %q, got: %v", field, err)
+		}
+	}
+}
+
+func TestParseEmptyFile(t *testing.T) {
+	// Create an empty file
+	tempFile, err := os.CreateTemp("", "empty_*.tsv")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	parser := NewTSVParser(tempFile.Name())
+	_, err = parser.Parse()
+	if err == nil {
+		t.Error("Expected error for empty file")
+	}
+}
+
+func TestParseMissingFile(t *testing.T) {
+	parser := NewTSVParser("/nonexistent/file.tsv")
+	_, err := parser.Parse()
+	if err == nil {
+		t.Error("Expected error for missing file")
+	}
+}

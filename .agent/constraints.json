@@ -1,0 +1,12 @@
+{
+  "project_name": "PHITE",
+  "component": "converter",
+  "output_directories": [
+    "outputs/drafts",
+    "outputs/design"
+  ],
+  "required_files": [
+    "README.md",
+    "constraints.json"
+  ]
+}

@@ -1,4 +1,6 @@
-# 🧬 Genetic Insights: Vision & Design Guide
+# PHITE : Personal Health Inference, Training, Education
+
+## 🧬 Genetic Insights: Vision & Design Guide
 
 ## 🎯 Project Vision
 
@@ -11,7 +13,7 @@ The goal is to guide users through layers of **information abstraction**, starti
 ## 🧱 Information Pyramid
 
 ### 1. 🏔️ Metagenetic Profile (Top Level)
-**Purpose:** Summarize the user's overall genetic health landscape  
+**Purpose:** Summarize the user's overall genetic health landscape
 **Format:**
 - One-paragraph summaries per major domain (e.g., Metabolic, Cognitive)
 - Visual indicators (e.g., gauges, green/yellow/red risk bands)
@@ -20,8 +22,8 @@ The goal is to guide users through layers of **information abstraction**, starti
 ---
 
 ### 2. 🧩 Category Modules (Middle Level)
-**Example:** `Metabolic Health`  
-**Purpose:** Group related conditions together (e.g., diabetes, lipid metabolism, thyroid)  
+**Example:** `Metabolic Health`
+**Purpose:** Group related conditions together (e.g., diabetes, lipid metabolism, thyroid)
 **Features:**
 - Brief overview of the category
 - Subsection summaries (with links to focus pages)
@@ -30,8 +32,8 @@ The goal is to guide users through layers of **information abstraction**, starti
 ---
 
 ### 3. 🔍 Focused Group Pages (Detailed Level)
-**Example:** `Diabetes Risk`  
-**Purpose:** Dive into a specific condition or mechanism  
+**Example:** `Diabetes Risk`
+**Purpose:** Dive into a specific condition or mechanism
 **Content Structure:**
 - Overview paragraph
 - Key Takeaways

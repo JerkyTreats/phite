@@ -27,3 +27,6 @@ go.work.sum
 
 # Environment files
 .env
+
+# Agent output drafts
+**/.agent/outputs/drafts/*
