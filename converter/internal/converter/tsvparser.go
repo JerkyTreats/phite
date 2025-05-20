@@ -9,11 +9,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/JerkyTreats/PHITE/converter/internal/models"
 	"github.com/JerkyTreats/PHITE/converter/pkg/logger"
 )
+
+// ParseResult contains both valid records and any error records encountered during parsing
+type ParseResult struct {
+	Result       *models.ConversionResult
+	ErrorRecords []string
+}
 
 // TSVParser is a parser for TSV files containing genetic SNP data.
 // It converts the TSV format into a structured JSON format with groupings of SNPs.
@@ -88,11 +93,11 @@ func NewTSVParser(inputFile string) *TSVParser {
 // - io.EOF: If the file is empty
 // - csv.ParseError: If the file cannot be parsed as TSV
 // - fmt.Errorf: For invalid record formats or other parsing errors
-func (p *TSVParser) Parse() (*models.ConversionResult, error) {
+func (p *TSVParser) Parse() (ParseResult, error) {
 	file, err := os.Open(p.inputFile)
 	if err != nil {
 		logger.Error(err, "failed to open file")
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		return ParseResult{}, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
@@ -102,26 +107,24 @@ func (p *TSVParser) Parse() (*models.ConversionResult, error) {
 	records, err := reader.ReadAll()
 	if err != nil {
 		logger.Error(err, "failed to read TSV")
-		return nil, fmt.Errorf("failed to read TSV: %w", err)
+		return ParseResult{}, fmt.Errorf("failed to read TSV: %w", err)
 	}
 
 	// Skip header
 	if len(records) == 0 {
 		logger.Error(nil, "empty file")
-		return nil, fmt.Errorf("empty file")
+		return ParseResult{}, fmt.Errorf("empty file")
 	}
 	records = records[1:]
 
 	// Create map to group SNPs by Group
 	groupings := make(map[string]*models.Grouping)
 
-	var hasErrors bool
 	var errorRecords []string
 	for _, record := range records {
 		logger.Debug("Processing record", "record", record)
 
 		if len(record) != 7 {
-			hasErrors = true
 			errorRecords = append(errorRecords, fmt.Sprintf("Record with %d columns: %v", len(record), record))
 			logger.Info("Invalid record format", "record", record)
 			continue
@@ -129,17 +132,23 @@ func (p *TSVParser) Parse() (*models.ConversionResult, error) {
 
 		group := record[1] // Group column
 		topic := record[0] // Topic column
+		genotype := record[5] // Genotype column
+
+		// Skip records with "--" genotype
+		if genotype == "--" {
+			errorRecords = append(errorRecords, fmt.Sprintf("Record with special genotype '--': %v", record))
+			logger.Info("Skipping SNP due to special genotype '--'", "record", record)
+			continue
+		}
 
 		// Create new grouping if it doesn't exist
 		if _, exists := groupings[group]; !exists {
-			logger.Debug("New grouping Identified, creating new grouping", nil)
 			newGroup := &models.Grouping{
 				Topic: topic,
 				Name:  group,
 			}
 			groupings[group] = newGroup
 			logger.Debug("New group created", "group", newGroup)
-
 		}
 
 		// Create and validate SNP
@@ -148,11 +157,10 @@ func (p *TSVParser) Parse() (*models.ConversionResult, error) {
 			record[3], // RSID
 			record[4], // Allele
 			record[6], // Notes
-			record[5], // Genotype
+			genotype, // Genotype
 		)
 
 		if err != nil {
-			hasErrors = true
 			errorRecords = append(errorRecords, fmt.Sprintf("Record validation failed: %v", record))
 			logger.Info("Skipping SNP due to validation error", "error", err)
 			continue
@@ -169,11 +177,13 @@ func (p *TSVParser) Parse() (*models.ConversionResult, error) {
 		result.Groupings = append(result.Groupings, *grouping)
 	}
 
-	if hasErrors {
-		logger.Error(nil, "some records were skipped due to invalid format")
-		return nil, fmt.Errorf("invalid records found in TSV: %s", strings.Join(errorRecords, "; "))
+	if len(errorRecords) > 0 {
+		logger.Info("some records were skipped due to invalid format", "errors", len(errorRecords))
 	}
 
-	logger.Info("parsing completed successfully", "groupings", len(result.Groupings))
-	return &result, nil
+	logger.Info("parsing completed", "groupings", len(result.Groupings), "errors", len(errorRecords))
+	return ParseResult{
+		Result:       &result,
+		ErrorRecords: errorRecords,
+	}, nil
 }

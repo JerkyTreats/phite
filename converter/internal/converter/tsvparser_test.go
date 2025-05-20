@@ -86,12 +86,12 @@ func TestParseValidTSV(t *testing.T) {
 	}
 
 	// Verify we got one grouping
-	if len(result.Groupings) != 1 {
-		t.Errorf("Expected 1 grouping, got %d", len(result.Groupings))
+	if len(result.Result.Groupings) != 1 {
+		t.Errorf("Expected 1 grouping, got %d", len(result.Result.Groupings))
 	}
 
 	// Verify the grouping details
-	grouping := result.Groupings[0]
+	grouping := result.Result.Groupings[0]
 	if grouping.Topic != "Nutrients – Vitamins and Minerals" {
 		t.Errorf("Expected topic 'Nutrients – Vitamins and Minerals', got %s", grouping.Topic)
 	}
@@ -130,6 +130,14 @@ func TestParseValidTSV(t *testing.T) {
 	if fullMatchSNP.Subject.Match != "Full" {
 		t.Errorf("Expected match 'Full', got %s", fullMatchSNP.Subject.Match)
 	}
+
+	// Verify we got error records for skipped records
+	if len(result.ErrorRecords) != 1 {
+		t.Errorf("Expected 1 error record, got %d", len(result.ErrorRecords))
+	}
+	if !strings.Contains(result.ErrorRecords[0], "Record with special genotype '--'") {
+		t.Errorf("Expected error record to contain special genotype message, got: %s", result.ErrorRecords[0])
+	}
 }
 
 func TestParseInvalidTSV(t *testing.T) {
@@ -148,21 +156,23 @@ func TestParseInvalidTSV(t *testing.T) {
 	}
 
 	parser := NewTSVParser(tempFile.Name())
-	_, err = parser.Parse()
-	if err == nil {
-		t.Fatal("Expected error for invalid TSV format")
+	result, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "invalid records found in TSV") {
-		t.Errorf("Expected invalid records error, got: %v", err)
+
+	// Verify we got the error record
+	if len(result.ErrorRecords) != 1 {
+		t.Errorf("Expected 1 error record, got %d", len(result.ErrorRecords))
 	}
-	if !strings.Contains(err.Error(), "Record with 6 columns") {
-		t.Errorf("Expected error to contain record column count, got: %v", err)
+	if !strings.Contains(result.ErrorRecords[0], "Record with 6 columns") {
+		t.Errorf("Expected error record to contain column count, got: %s", result.ErrorRecords[0])
 	}
-	// Check that each field is present in the error message
+	// Check that each field is present in the error record
 	fields := []string{"Foo", "Bar", "Baz", "Qux", "Quux", "Corge"}
 	for _, field := range fields {
-		if !strings.Contains(err.Error(), field) {
-			t.Errorf("Expected error to contain field %q, got: %v", field, err)
+		if !strings.Contains(result.ErrorRecords[0], field) {
+			t.Errorf("Expected error record to contain field %q, got: %s", field, result.ErrorRecords[0])
 		}
 	}
 }

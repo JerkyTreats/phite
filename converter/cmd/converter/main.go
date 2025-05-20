@@ -25,12 +25,16 @@ func main() {
 	parser := converter.NewTSVParser(*inputFile)
 	result, err := parser.Parse()
 	if err != nil {
-		logger.Fatal(err, "failed to parse TSV")
+		logger.Error(err, "failed to parse TSV")
 	}
 
-	err = converter.SaveResult(result, *outputFile)
+	if len(result.ErrorRecords) > 0 {
+		logger.Info("some records were skipped due to invalid format", "errors", len(result.ErrorRecords))
+	}
+
+	err = converter.SaveResult(result.Result, *outputFile)
 	if err != nil {
-		logger.Fatal(err, "failed to save result")
+		logger.Error(err, "failed to save result")
 	}
 
 	logger.Info("conversion completed successfully", "input", *inputFile, "output", *outputFile)
