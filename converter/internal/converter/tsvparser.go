@@ -16,6 +16,34 @@ import (
 	"github.com/JerkyTreats/PHITE/converter/pkg/logger"
 )
 
+// SaveResult saves a ConversionResult to the specified output file in JSON format.
+func SaveResult(result *models.ConversionResult, outputFile string) error {
+	// Create output directory if it doesn't exist
+	outputDir := filepath.Dir(outputFile)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Create file
+	file, err := os.Create(outputFile)
+	if err != nil {
+		return fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer file.Close()
+
+	// Create JSON encoder
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+
+	// Encode result
+	if err := encoder.Encode(result); err != nil {
+		return fmt.Errorf("failed to encode JSON: %w", err)
+	}
+
+	logger.Info("saved result to file", "file", outputFile)
+	return nil
+}
+
 // ParseResult contains both valid records and any error records encountered during parsing
 type ParseResult struct {
 	Result       *models.ConversionResult
@@ -27,38 +55,6 @@ type ParseResult struct {
 type TSVParser struct {
 	inputFile string
 	outputDir string
-}
-
-// SaveResult saves a ConversionResult to the specified output file in JSON format.
-//
-// Args:
-//
-//	result: The ConversionResult to save
-//	outputFile: Path to the output file
-//
-// Returns:
-//
-//	error: If any error occurs during saving
-//
-// Possible errors:
-//   - os.ErrPermission: If insufficient permissions to write to file
-//   - json.MarshalIndent: If JSON encoding fails
-//   - os.WriteFile: If file write operation fails
-func SaveResult(result *models.ConversionResult, outputFile string) error {
-	jsonBytes, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		logger.Error(err, "failed to marshal JSON")
-		return fmt.Errorf("failed to marshal JSON: %w", err)
-	}
-
-	err = os.WriteFile(outputFile, jsonBytes, 0644)
-	if err != nil {
-		logger.Error(err, "failed to write output file")
-		return fmt.Errorf("failed to write output file: %w", err)
-	}
-
-	logger.Info("saved result to file", "file", outputFile)
-	return nil
 }
 
 // NewTSVParser creates a new TSVParser instance with the specified input file.
@@ -191,7 +187,7 @@ func (p *TSVParser) Parse() ([]string, []string, error) {
 		filename := fmt.Sprintf("%s.json", strings.ReplaceAll(grouping.Name, "/", "-"))
 		outputPath := filepath.Join(p.outputDir, filename)
 		
-		if err := SaveResult(&models.ConversionResult{Groupings: []models.Grouping{*grouping}}, outputPath); err != nil {
+		if err := SaveResult(&models.ConversionResult{Grouping: *grouping}, outputPath); err != nil {
 			logger.Error(err, "failed to save grouping", "group", grouping.Name)
 			return nil, nil, fmt.Errorf("failed to save grouping %s: %w", grouping.Name, err)
 		}

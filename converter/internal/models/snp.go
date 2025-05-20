@@ -202,10 +202,9 @@ type Grouping struct {
 }
 
 // ConversionResult represents the final output of the SNP conversion process.
-// It contains multiple Groupings of SNPs organized by their biological relationships.
+// It contains a single Grouping of SNPs organized by their biological relationships.
 type ConversionResult struct {
-	// Groupings is the list of SNP groupings in the result
-	Groupings []Grouping `json:"Groupings"`
+	Grouping Grouping `json:"Grouping"`
 }
 
 // DetermineMatch determines the match type between a subject's genotype and
