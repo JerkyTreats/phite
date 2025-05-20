@@ -12,37 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/JerkyTreats/PHITE/converter/internal/config"
 	"github.com/JerkyTreats/PHITE/converter/internal/models"
 	"github.com/JerkyTreats/PHITE/converter/pkg/logger"
 )
-
-// SaveResult saves a ConversionResult to the specified output file in JSON format.
-func SaveResult(result *models.ConversionResult, outputFile string) error {
-	// Create output directory if it doesn't exist
-	outputDir := filepath.Dir(outputFile)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	// Create file
-	file, err := os.Create(outputFile)
-	if err != nil {
-		return fmt.Errorf("failed to create output file: %w", err)
-	}
-	defer file.Close()
-
-	// Create JSON encoder
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-
-	// Encode result
-	if err := encoder.Encode(result); err != nil {
-		return fmt.Errorf("failed to encode JSON: %w", err)
-	}
-
-	logger.Info("saved result to file", "file", outputFile)
-	return nil
-}
 
 // ParseResult contains both valid records and any error records encountered during parsing
 type ParseResult struct {
@@ -55,15 +28,53 @@ type ParseResult struct {
 type TSVParser struct {
 	inputFile string
 	outputDir string
+	config    config.Config
+}
+
+// SaveResult saves a ConversionResult to the specified output file in JSON format.
+//
+// Args:
+//
+//	result: The ConversionResult to save
+//	outputFile: Path to the output file
+//
+// Returns:
+//
+//	error: If any error occurs during saving
+//
+// Possible errors:
+//   - os.ErrPermission: If insufficient permissions to write to file
+//   - json.MarshalIndent: If JSON encoding fails
+//   - os.WriteFile: If file write operation fails
+func SaveResult(result *models.ConversionResult, outputFile string) error {
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		logger.Error(err, "failed to marshal JSON")
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	err = os.WriteFile(outputFile, jsonBytes, 0644)
+	if err != nil {
+		logger.Error(err, "failed to write output file")
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	logger.Info("saved result to file", "file", outputFile)
+	return nil
 }
 
 // NewTSVParser creates a new TSVParser instance with the specified input file.
 // The input file should be a TSV file with the following columns:
 // Topic, Group, Gene, RS ID, Allele, Subject Genotype, Notes
 func NewTSVParser(inputFile string, outputDir string) *TSVParser {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		logger.Fatal(err, "failed to load configuration")
+	}
 	return &TSVParser{
-		inputFile:  inputFile,
-		outputDir:  outputDir,
+		inputFile: inputFile,
+		outputDir: outputDir,
+		config:    cfg,
 	}
 }
 
@@ -140,17 +151,11 @@ func (p *TSVParser) Parse() ([]string, []string, error) {
 			continue
 		}
 
-		group := record[1] // Group column
-		topic := record[0] // Topic column
+		group := record[1]    // Group column
+		topic := record[0]    // Topic column
 		genotype := record[5] // Genotype column
 
-		// Skip records with "--" genotype
-		if genotype == "--" {
-			errorRecords = append(errorRecords, fmt.Sprintf("Record with special genotype '--': %v", record))
-			logger.Info("Skipping SNP due to special genotype '--'", "record", record)
-			continue
-		}
-
+		
 		// Create new grouping if it doesn't exist
 		if _, exists := groupings[group]; !exists {
 			newGroup := &models.Grouping{
@@ -167,7 +172,7 @@ func (p *TSVParser) Parse() ([]string, []string, error) {
 			record[3], // RSID
 			record[4], // Allele
 			record[6], // Notes
-			genotype, // Genotype
+			genotype,  // Genotype
 		)
 
 		if err != nil {
@@ -186,8 +191,18 @@ func (p *TSVParser) Parse() ([]string, []string, error) {
 		// Generate filename-safe version of group name
 		filename := fmt.Sprintf("%s.json", strings.ReplaceAll(grouping.Name, "/", "-"))
 		outputPath := filepath.Join(p.outputDir, filename)
-		
-		if err := SaveResult(&models.ConversionResult{Grouping: *grouping}, outputPath); err != nil {
+
+		// Use AddIfMatch to build the output SNP slice
+		var filteredSNPs []models.SNP
+		for _, snp := range grouping.SNP {
+			filteredSNPs = models.AddIfMatch(filteredSNPs, snp, p.config.GetMatchLevel())
+		}
+
+		if err := SaveResult(&models.ConversionResult{Grouping: models.Grouping{
+			Topic: grouping.Topic,
+			Name:  grouping.Name,
+			SNP:   filteredSNPs,
+		}}, outputPath); err != nil {
 			logger.Error(err, "failed to save grouping", "group", grouping.Name)
 			return nil, nil, fmt.Errorf("failed to save grouping %s: %w", grouping.Name, err)
 		}

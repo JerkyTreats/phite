@@ -345,6 +345,13 @@ func TestSNP_Validate(t *testing.T) {
 			if tt.wantErr && err.Error() != tt.wantMsg {
 				t.Errorf("SNP.Validate() error message = %q, want %q", err.Error(), tt.wantMsg)
 			}
+			// Check that Match is correct for valid SNPs
+			if !tt.wantErr {
+				expectedMatch := DetermineMatch(tt.snp.Subject.Genotype, tt.snp.Allele)
+				if tt.snp.Subject.Match != expectedMatch {
+					t.Errorf("SNP.Subject.Match = %v, want %v", tt.snp.Subject.Match, expectedMatch)
+				}
+			}
 		})
 	}
 }

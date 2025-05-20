@@ -89,7 +89,7 @@ func TestParseValidTSV(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	parser := NewTSVParser(testFile, tempDir)
-	_, errorRecords, err := parser.Parse()
+	_, _, err = parser.Parse()
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
@@ -127,13 +127,6 @@ func TestParseValidTSV(t *testing.T) {
 		t.Errorf("Expected grouping 'MTHFR' in output")
 	}
 
-	// Verify we got error records for skipped records
-	if len(errorRecords) != 1 {
-		t.Errorf("Expected 1 error record, got %d", len(errorRecords))
-	}
-	if !strings.Contains(errorRecords[0], "Record with special genotype '--'") {
-		t.Errorf("Expected error record to contain special genotype message, got: %s", errorRecords[0])
-	}
 }
 
 func TestParseInvalidTSV(t *testing.T) {

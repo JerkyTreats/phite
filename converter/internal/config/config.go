@@ -9,12 +9,35 @@ import (
 	"strings"
 )
 
+// MatchLevel specifies the minimum match level to include in output
+// "None" - include all SNPs
+// "Partial" - include Partial and Full matches
+// "Full" - include only Full matches
+type MatchLevel string
+
+const (
+	MatchLevelNone   MatchLevel = "None"
+	MatchLevelPartial MatchLevel = "Partial"
+	MatchLevelFull   MatchLevel = "Full"
+)
+
+// ValidMatchLevel returns true if the match level is valid
+func ValidMatchLevel(level MatchLevel) bool {
+	switch level {
+	case MatchLevelNone, MatchLevelPartial, MatchLevelFull:
+		return true
+	default:
+		return false
+	}
+}
+
 // Config holds application configuration
 //go:generate mockery --name Config --output mocks
 
 type Config interface {
 	GetLogLevel() string
 	GetOutputDir() string
+	GetMatchLevel() MatchLevel
 	SetOutputDir(dir string)
 	Save() error
 }
@@ -23,15 +46,17 @@ type Config interface {
 //go:generate mockery --name DefaultConfig --output mocks
 
 type DefaultConfig struct {
-	LogLevel  string `json:"log_level"`
-	OutputDir string `json:"output_dir"`
+	LogLevel  string    `json:"log_level"`
+	OutputDir string    `json:"output_dir"`
+	MatchLevel MatchLevel `json:"match_level"`
 }
 
 // NewConfig creates a new configuration with default values
 func NewConfig() Config {
 	return &DefaultConfig{
-		LogLevel:  "info",
-		OutputDir: "output",
+		LogLevel:   "info",
+		OutputDir:  "output",
+		MatchLevel: MatchLevelNone,
 	}
 }
 
@@ -47,6 +72,11 @@ func (c *DefaultConfig) GetOutputDir() string {
 		return filepath.Join(os.Getenv("HOME"), strings.TrimPrefix(c.OutputDir, "~"))
 	}
 	return c.OutputDir
+}
+
+// GetMatchLevel returns the current match level
+func (c *DefaultConfig) GetMatchLevel() MatchLevel {
+	return c.MatchLevel
 }
 
 // SetOutputDir sets the output directory

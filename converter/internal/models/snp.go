@@ -6,9 +6,10 @@ package models
 
 import (
 	"fmt"
-	"strings"
 	"strconv"
+	"strings"
 
+	"github.com/JerkyTreats/PHITE/converter/internal/config"
 	"github.com/JerkyTreats/PHITE/converter/pkg/logger"
 )
 
@@ -206,6 +207,25 @@ type Grouping struct {
 type ConversionResult struct {
 	Grouping Grouping `json:"Grouping"`
 }
+
+// AddIfMatch appends snp to the slice if it matches the config match level.
+func AddIfMatch(snps []SNP, snp SNP, matchLevel config.MatchLevel) []SNP {
+	match := DetermineMatch(snp.Subject.Genotype, snp.Allele)
+	switch matchLevel {
+	case config.MatchLevelNone:
+		return append(snps, snp)
+	case config.MatchLevelPartial:
+		if match == "Partial" || match == "Full" {
+			return append(snps, snp)
+		}
+	case config.MatchLevelFull:
+		if match == "Full" {
+			return append(snps, snp)
+		}
+	}
+	return snps
+}
+
 
 // DetermineMatch determines the match type between a subject's genotype and
 // the reference allele.

@@ -14,6 +14,23 @@ func TestNewConfig(t *testing.T) {
 	if config.GetOutputDir() != "output" {
 		t.Errorf("Expected output dir 'output', got '%s'", config.GetOutputDir())
 	}
+
+	// Test default match level
+	if config.GetMatchLevel() != MatchLevelNone {
+		t.Errorf("Expected default match level 'None', got '%s'", config.GetMatchLevel())
+	}
+}
+
+func TestSetMatchLevel(t *testing.T) {
+	cfg := NewConfig().(*DefaultConfig)
+	cfg.MatchLevel = MatchLevelPartial
+	if cfg.GetMatchLevel() != MatchLevelPartial {
+		t.Errorf("Expected match level 'Partial', got '%s'", cfg.GetMatchLevel())
+	}
+	cfg.MatchLevel = MatchLevelFull
+	if cfg.GetMatchLevel() != MatchLevelFull {
+		t.Errorf("Expected match level 'Full', got '%s'", cfg.GetMatchLevel())
+	}
 }
 
 func TestSetOutputDir(t *testing.T) {
@@ -45,8 +62,9 @@ func TestSaveLoadConfig(t *testing.T) {
 	defer os.Setenv("HOME", oldHome)
 
 	// Create and save config
-	config := NewConfig()
+	config := NewConfig().(*DefaultConfig)
 	config.SetOutputDir("test_output")
+	config.MatchLevel = MatchLevelPartial
 	if err := config.Save(); err != nil {
 		t.Fatalf("Failed to save config: %v", err)
 	}
@@ -60,6 +78,9 @@ func TestSaveLoadConfig(t *testing.T) {
 	// Verify loaded values
 	if loadedConfig.GetOutputDir() != "test_output" {
 		t.Errorf("Expected output dir 'test_output', got '%s'", loadedConfig.GetOutputDir())
+	}
+	if loadedConfig.GetMatchLevel() != MatchLevelPartial {
+		t.Errorf("Expected match level 'Partial', got '%s'", loadedConfig.GetMatchLevel())
 	}
 
 	// Verify config file exists
