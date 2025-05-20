@@ -6,6 +6,7 @@ package converter
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -18,6 +19,37 @@ import (
 // It converts the TSV format into a structured JSON format with groupings of SNPs.
 type TSVParser struct {
 	inputFile string
+}
+
+// SaveResult saves a ConversionResult to the specified output file in JSON format.
+//
+// Args:
+//   result: The ConversionResult to save
+//   outputFile: Path to the output file
+//
+// Returns:
+//   error: If any error occurs during saving
+//
+// Possible errors:
+//   - os.ErrPermission: If insufficient permissions to write to file
+//   - os.ErrNotExist: If parent directory does not exist
+//   - json.MarshalIndent: If JSON encoding fails
+//   - os.WriteFile: If file write operation fails
+func SaveResult(result *models.ConversionResult, outputFile string) error {
+	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		logger.Error(err, "failed to marshal JSON")
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	err = os.WriteFile(outputFile, jsonBytes, 0644)
+	if err != nil {
+		logger.Error(err, "failed to write output file")
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	logger.Info("saved result to file", "file", outputFile)
+	return nil
 }
 
 // NewTSVParser creates a new TSVParser instance with the specified input file.

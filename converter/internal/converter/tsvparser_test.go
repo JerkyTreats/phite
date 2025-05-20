@@ -6,7 +6,69 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/JerkyTreats/PHITE/converter/internal/models"
 )
+
+func TestSaveResult(t *testing.T) {
+	// Create a temporary file
+	tempFile, err := os.CreateTemp("", "result_*.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+
+	// Create a sample ConversionResult
+	result := &models.ConversionResult{
+		Groupings: []models.Grouping{
+			{
+				Topic: "Test Topic",
+				Name:  "Test Group",
+				SNP: []models.SNP{
+					{
+						Gene:   "TestGene",
+						RSID:   "rs123",
+						Allele: "A",
+						Notes:  "Test SNP",
+						Subject: models.Subject{
+							Genotype: "AA",
+							Match:    "Full",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Test saving
+	err = SaveResult(result, tempFile.Name())
+	if err != nil {
+		t.Fatalf("SaveResult failed: %v", err)
+	}
+
+	// Verify file exists and has content
+	stat, err := os.Stat(tempFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to stat file: %v", err)
+	}
+	if stat.Size() == 0 {
+		t.Fatal("Saved file is empty")
+	}
+
+	// Verify JSON content
+	content, err := os.ReadFile(tempFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to read file: %v", err)
+	}
+
+	// Basic JSON validation - check for expected fields
+	if !strings.Contains(string(content), "Test Topic") {
+		t.Errorf("Saved JSON does not contain expected topic")
+	}
+	if !strings.Contains(string(content), "Test Group") {
+		t.Errorf("Saved JSON does not contain expected group")
+	}
+}
 
 func TestParseValidTSV(t *testing.T) {
 	// Get absolute path to test file
