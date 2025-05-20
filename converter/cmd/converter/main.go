@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
-	"os"
 
 	"github.com/JerkyTreats/PHITE/converter/internal/converter"
 	"github.com/JerkyTreats/PHITE/converter/pkg/logger"
@@ -12,7 +10,13 @@ import (
 func main() {
 	inputFile := flag.String("input", "", "path to input TSV file")
 	outputFile := flag.String("output", "output.json", "path to output JSON file")
+	logLevel := flag.String("log-level", "info", "logging level (debug, info, error, fatal)")
 	flag.Parse()
+
+	// Set logging level
+	if err := logger.SetLevel(*logLevel); err != nil {
+		logger.Fatal(err, "invalid log level specified")
+	}
 
 	if *inputFile == "" {
 		logger.Fatal(nil, "input file is required")
@@ -24,14 +28,9 @@ func main() {
 		logger.Fatal(err, "failed to parse TSV")
 	}
 
-	jsonBytes, err := json.MarshalIndent(result, "", "  ")
+	err = converter.SaveResult(result, *outputFile)
 	if err != nil {
-		logger.Fatal(err, "failed to marshal JSON")
-	}
-
-	err = os.WriteFile(*outputFile, jsonBytes, 0644)
-	if err != nil {
-		logger.Fatal(err, "failed to write output file")
+		logger.Fatal(err, "failed to save result")
 	}
 
 	logger.Info("conversion completed successfully", "input", *inputFile, "output", *outputFile)

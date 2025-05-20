@@ -24,11 +24,13 @@ type TSVParser struct {
 // SaveResult saves a ConversionResult to the specified output file in JSON format.
 //
 // Args:
-//   result: The ConversionResult to save
-//   outputFile: Path to the output file
+//
+//	result: The ConversionResult to save
+//	outputFile: Path to the output file
 //
 // Returns:
-//   error: If any error occurs during saving
+//
+//	error: If any error occurs during saving
 //
 // Possible errors:
 //   - os.ErrPermission: If insufficient permissions to write to file
@@ -71,9 +73,10 @@ func NewTSVParser(inputFile string) *TSVParser {
 // 3. Skips the header row
 // 4. Groups SNPs by their Group field
 // 5. For each SNP:
-//    - Validates record format (must have 7 columns)
-//    - Skips SNPs with blank or "--" genotypes
-//    - Determines genotype match (None/Partial/Full)
+//   - Validates record format (must have 7 columns)
+//   - Skips SNPs with blank or "--" genotypes
+//   - Determines genotype match (None/Partial/Full)
+//
 // 6. Returns a ConversionResult containing all valid SNPs grouped by their Group
 //
 // Returns:
@@ -115,9 +118,12 @@ func (p *TSVParser) Parse() (*models.ConversionResult, error) {
 	var hasErrors bool
 	var errorRecords []string
 	for _, record := range records {
+		logger.Debug("Processing record", "record", record)
+
 		if len(record) != 7 {
 			hasErrors = true
 			errorRecords = append(errorRecords, fmt.Sprintf("Record with %d columns: %v", len(record), record))
+			logger.Info("Invalid record format", "record", record)
 			continue
 		}
 
@@ -126,30 +132,35 @@ func (p *TSVParser) Parse() (*models.ConversionResult, error) {
 
 		// Create new grouping if it doesn't exist
 		if _, exists := groupings[group]; !exists {
-			groupings[group] = &models.Grouping{
+			logger.Debug("New grouping Identified, creating new grouping", nil)
+			newGroup := &models.Grouping{
 				Topic: topic,
 				Name:  group,
 			}
+			groupings[group] = newGroup
+			logger.Debug("New group created", "group", newGroup)
+
 		}
 
-		snp := &models.SNP{
-			Gene:   record[2],
-			RSID:   record[3],
-			Allele: record[4],
-			Notes:  record[6],
-			Subject: models.Subject{
-				Genotype: record[5],
-				Match:    models.DetermineMatch(record[5], record[4]),
-			},
-		}
+		// Create and validate SNP
+		snp, err := models.NewSNP(
+			record[2], // Gene
+			record[3], // RSID
+			record[4], // Allele
+			record[6], // Notes
+			record[5], // Genotype
+		)
 
-		// Skip SNPs with blank or "--" genotypes
-		if snp.Subject.Genotype == "--" || snp.Subject.Genotype == "" {
-			logger.Info("skipping SNP with invalid genotype", "genotype", snp.Subject.Genotype)
+		if err != nil {
+			hasErrors = true
+			errorRecords = append(errorRecords, fmt.Sprintf("Record validation failed: %v", record))
+			logger.Info("Skipping SNP due to validation error", "error", err)
 			continue
 		}
 
+		logger.Debug("SNP created", "snp", snp)
 		groupings[group].SNP = append(groupings[group].SNP, *snp)
+		logger.Debug("SNP added to group", "group", group, "snp", snp)
 	}
 
 	// Convert map to slice
