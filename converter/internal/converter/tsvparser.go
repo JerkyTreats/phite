@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/JerkyTreats/PHITE/converter/internal/models"
 	"github.com/JerkyTreats/PHITE/converter/pkg/logger"
@@ -24,6 +25,7 @@ type ParseResult struct {
 // It converts the TSV format into a structured JSON format with groupings of SNPs.
 type TSVParser struct {
 	inputFile string
+	outputDir string
 }
 
 // SaveResult saves a ConversionResult to the specified output file in JSON format.
@@ -39,7 +41,6 @@ type TSVParser struct {
 //
 // Possible errors:
 //   - os.ErrPermission: If insufficient permissions to write to file
-//   - os.ErrNotExist: If parent directory does not exist
 //   - json.MarshalIndent: If JSON encoding fails
 //   - os.WriteFile: If file write operation fails
 func SaveResult(result *models.ConversionResult, outputFile string) error {
@@ -62,9 +63,10 @@ func SaveResult(result *models.ConversionResult, outputFile string) error {
 // NewTSVParser creates a new TSVParser instance with the specified input file.
 // The input file should be a TSV file with the following columns:
 // Topic, Group, Gene, RS ID, Allele, Subject Genotype, Notes
-func NewTSVParser(inputFile string) *TSVParser {
+func NewTSVParser(inputFile string, outputDir string) *TSVParser {
 	return &TSVParser{
-		inputFile: inputFile,
+		inputFile:  inputFile,
+		outputDir:  outputDir,
 	}
 }
 
@@ -93,11 +95,11 @@ func NewTSVParser(inputFile string) *TSVParser {
 // - io.EOF: If the file is empty
 // - csv.ParseError: If the file cannot be parsed as TSV
 // - fmt.Errorf: For invalid record formats or other parsing errors
-func (p *TSVParser) Parse() (ParseResult, error) {
+func (p *TSVParser) Parse() ([]string, []string, error) {
 	file, err := os.Open(p.inputFile)
 	if err != nil {
 		logger.Error(err, "failed to open file")
-		return ParseResult{}, fmt.Errorf("failed to open file: %w", err)
+		return nil, nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
@@ -107,13 +109,13 @@ func (p *TSVParser) Parse() (ParseResult, error) {
 	records, err := reader.ReadAll()
 	if err != nil {
 		logger.Error(err, "failed to read TSV")
-		return ParseResult{}, fmt.Errorf("failed to read TSV: %w", err)
+		return nil, nil, fmt.Errorf("failed to read TSV: %w", err)
 	}
 
 	// Skip header
 	if len(records) == 0 {
 		logger.Error(nil, "empty file")
-		return ParseResult{}, fmt.Errorf("empty file")
+		return nil, nil, fmt.Errorf("empty file")
 	}
 	records = records[1:]
 
@@ -121,6 +123,14 @@ func (p *TSVParser) Parse() (ParseResult, error) {
 	groupings := make(map[string]*models.Grouping)
 
 	var errorRecords []string
+	var outputFiles []string
+
+	// Ensure output directory exists
+	if err := os.MkdirAll(p.outputDir, 0755); err != nil {
+		logger.Error(err, "failed to create output directory")
+		return nil, nil, fmt.Errorf("failed to create output directory: %w", err)
+	}
+
 	for _, record := range records {
 		logger.Debug("Processing record", "record", record)
 
@@ -171,19 +181,22 @@ func (p *TSVParser) Parse() (ParseResult, error) {
 		logger.Debug("SNP added to group", "group", group, "snp", snp)
 	}
 
-	// Convert map to slice
-	var result models.ConversionResult
+	// Save each grouping to its own JSON file
 	for _, grouping := range groupings {
-		result.Groupings = append(result.Groupings, *grouping)
+		filename := fmt.Sprintf("%s.json", grouping.Name)
+		outputPath := filepath.Join(p.outputDir, filename)
+		
+		if err := SaveResult(&models.ConversionResult{Groupings: []models.Grouping{*grouping}}, outputPath); err != nil {
+			logger.Error(err, "failed to save grouping", "group", grouping.Name)
+			return nil, nil, fmt.Errorf("failed to save grouping %s: %w", grouping.Name, err)
+		}
+		outputFiles = append(outputFiles, outputPath)
 	}
 
 	if len(errorRecords) > 0 {
 		logger.Info("some records were skipped due to invalid format", "errors", len(errorRecords))
 	}
 
-	logger.Info("parsing completed", "groupings", len(result.Groupings), "errors", len(errorRecords))
-	return ParseResult{
-		Result:       &result,
-		ErrorRecords: errorRecords,
-	}, nil
+	logger.Info("parsing completed", "files", len(outputFiles), "errors", len(errorRecords))
+	return outputFiles, errorRecords, nil
 }

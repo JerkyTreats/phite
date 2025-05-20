@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"path/filepath"
 
 	"github.com/JerkyTreats/PHITE/converter/internal/converter"
 	"github.com/JerkyTreats/PHITE/converter/pkg/logger"
@@ -9,7 +10,7 @@ import (
 
 func main() {
 	inputFile := flag.String("input", "", "path to input TSV file")
-	outputFile := flag.String("output", "output.json", "path to output JSON file")
+	outputDir := flag.String("output-dir", "output", "directory to save JSON files")
 	logLevel := flag.String("log-level", "info", "logging level (debug, info, error, fatal)")
 	flag.Parse()
 
@@ -22,20 +23,29 @@ func main() {
 		logger.Fatal(nil, "input file is required")
 	}
 
-	parser := converter.NewTSVParser(*inputFile)
-	result, err := parser.Parse()
+	// Create output directory if it doesn't exist
+	absOutputDir, err := filepath.Abs(*outputDir)
 	if err != nil {
-		logger.Error(err, "failed to parse TSV")
+		logger.Fatal(err, "failed to get absolute path for output directory")
 	}
 
-	if len(result.ErrorRecords) > 0 {
-		logger.Info("some records were skipped due to invalid format", "errors", len(result.ErrorRecords))
-	}
-
-	err = converter.SaveResult(result.Result, *outputFile)
+	parser := converter.NewTSVParser(*inputFile, absOutputDir)
+	outputFiles, errorRecords, err := parser.Parse()
 	if err != nil {
-		logger.Error(err, "failed to save result")
+		logger.Fatal(err, "failed to parse TSV")
 	}
 
-	logger.Info("conversion completed successfully", "input", *inputFile, "output", *outputFile)
+	if len(errorRecords) > 0 {
+		logger.Info("some records were skipped due to invalid format", "errors", len(errorRecords))
+	}
+
+	if len(outputFiles) > 0 {
+		logger.Info("conversion completed successfully", "input", *inputFile, "output-dir", absOutputDir)
+		logger.Info("generated files:", "count", len(outputFiles))
+		for _, file := range outputFiles {
+			logger.Info("generated file", "path", file)
+		}
+	} else {
+		logger.Fatal(nil, "no files were generated")
+	}
 }

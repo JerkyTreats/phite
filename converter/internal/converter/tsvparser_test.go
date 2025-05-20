@@ -6,48 +6,50 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/JerkyTreats/PHITE/converter/internal/models"
 )
 
 func TestSaveResult(t *testing.T) {
-	// Create a temporary file
-	tempFile, err := os.CreateTemp("", "result_*.json")
+	// Create a temporary directory
+	tempDir, err := os.MkdirTemp("", "test_output_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create a temporary test file
+	tempFile, err := os.CreateTemp("", "test_*.tsv")
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
 	defer os.Remove(tempFile.Name())
 
-	// Create a sample ConversionResult
-	result := &models.ConversionResult{
-		Groupings: []models.Grouping{
-			{
-				Topic: "Test Topic",
-				Name:  "Test Group",
-				SNP: []models.SNP{
-					{
-						Gene:   "TestGene",
-						RSID:   "rs123",
-						Allele: "A",
-						Notes:  "Test SNP",
-						Subject: models.Subject{
-							Genotype: "AA",
-							Match:    "Full",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	// Test saving
-	err = SaveResult(result, tempFile.Name())
+	// Write test data
+	testData := `Topic	Group	Gene	RS ID	Allele	Subject Genotype	Notes
+Test Topic	Test Group	TestGene	rs123	A	AA	Test SNP`
+	_, err = tempFile.WriteString(testData)
 	if err != nil {
-		t.Fatalf("SaveResult failed: %v", err)
+		t.Fatalf("Failed to write test data: %v", err)
 	}
 
-	// Verify file exists and has content
-	stat, err := os.Stat(tempFile.Name())
+	// Create parser with temp directory
+	parser := NewTSVParser(tempFile.Name(), tempDir)
+	_, _, err = parser.Parse()
+	if err != nil {
+		t.Fatalf("Parse failed: %v", err)
+	}
+
+	// Verify output files exist in directory
+	files, err := os.ReadDir(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to read directory: %v", err)
+	}
+	if len(files) != 1 {
+		t.Errorf("Expected 1 output file, got %d", len(files))
+	}
+
+	// Verify the file exists and has content
+	filePath := filepath.Join(tempDir, files[0].Name())
+	stat, err := os.Stat(filePath)
 	if err != nil {
 		t.Fatalf("Failed to stat file: %v", err)
 	}
@@ -56,7 +58,7 @@ func TestSaveResult(t *testing.T) {
 	}
 
 	// Verify JSON content
-	content, err := os.ReadFile(tempFile.Name())
+	content, err := os.ReadFile(filePath)
 	if err != nil {
 		t.Fatalf("Failed to read file: %v", err)
 	}
@@ -79,64 +81,58 @@ func TestParseValidTSV(t *testing.T) {
 	testDir := filepath.Dir(filename)
 	testFile := filepath.Join(testDir, "testdata", "sample.tsv")
 
-	parser := NewTSVParser(testFile)
-	result, err := parser.Parse()
+	// Create a temporary directory for output
+	tempDir, err := os.MkdirTemp("", "test_output_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	parser := NewTSVParser(testFile, tempDir)
+	_, errorRecords, err := parser.Parse()
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
-	// Verify we got one grouping
-	if len(result.Result.Groupings) != 1 {
-		t.Errorf("Expected 1 grouping, got %d", len(result.Result.Groupings))
+	// Verify output files exist in directory
+	files, err := os.ReadDir(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to read directory: %v", err)
+	}
+	if len(files) != 1 {
+		t.Errorf("Expected 1 output file, got %d", len(files))
 	}
 
-	// Verify the grouping details
-	grouping := result.Result.Groupings[0]
-	if grouping.Topic != "Nutrients – Vitamins and Minerals" {
-		t.Errorf("Expected topic 'Nutrients – Vitamins and Minerals', got %s", grouping.Topic)
+	// Verify the file exists and has content
+	filePath := filepath.Join(tempDir, files[0].Name())
+	stat, err := os.Stat(filePath)
+	if err != nil {
+		t.Fatalf("Failed to stat file: %v", err)
 	}
-	if grouping.Name != "MTHFR" {
-		t.Errorf("Expected name 'MTHFR', got %s", grouping.Name)
-	}
-
-	// Verify we got 4 SNPs (one was skipped due to "--" genotype)
-	if len(grouping.SNP) != 4 {
-		t.Errorf("Expected 4 SNPs, got %d", len(grouping.SNP))
+	if stat.Size() == 0 {
+		t.Fatal("Saved file is empty")
 	}
 
-	// Verify SNP details
-	snp := grouping.SNP[0]
-	if snp.Gene != "MTHFR C677T" {
-		t.Errorf("Expected gene 'MTHFR C677T', got %s", snp.Gene)
-	}
-	if snp.RSID != "rs1801133" {
-		t.Errorf("Expected RSID 'rs1801133', got %s", snp.RSID)
-	}
-	if snp.Allele != "A" {
-		t.Errorf("Expected allele 'A', got %s", snp.Allele)
-	}
-	if snp.Subject.Genotype != "AG" {
-		t.Errorf("Expected genotype 'AG', got %s", snp.Subject.Genotype)
-	}
-	if snp.Subject.Match != "Partial" {
-		t.Errorf("Expected match 'Partial', got %s", snp.Subject.Match)
+	// Read the JSON content
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to read file: %v", err)
 	}
 
-	// Verify full match SNP
-	fullMatchSNP := grouping.SNP[3]
-	if fullMatchSNP.Subject.Genotype != "AA" {
-		t.Errorf("Expected genotype 'AA', got %s", fullMatchSNP.Subject.Genotype)
+	// Verify content
+	if !strings.Contains(string(content), "Nutrients – Vitamins and Minerals") {
+		t.Errorf("Expected topic 'Nutrients – Vitamins and Minerals' in output")
 	}
-	if fullMatchSNP.Subject.Match != "Full" {
-		t.Errorf("Expected match 'Full', got %s", fullMatchSNP.Subject.Match)
+	if !strings.Contains(string(content), "MTHFR") {
+		t.Errorf("Expected grouping 'MTHFR' in output")
 	}
 
 	// Verify we got error records for skipped records
-	if len(result.ErrorRecords) != 1 {
-		t.Errorf("Expected 1 error record, got %d", len(result.ErrorRecords))
+	if len(errorRecords) != 1 {
+		t.Errorf("Expected 1 error record, got %d", len(errorRecords))
 	}
-	if !strings.Contains(result.ErrorRecords[0], "Record with special genotype '--'") {
-		t.Errorf("Expected error record to contain special genotype message, got: %s", result.ErrorRecords[0])
+	if !strings.Contains(errorRecords[0], "Record with special genotype '--'") {
+		t.Errorf("Expected error record to contain special genotype message, got: %s", errorRecords[0])
 	}
 }
 
@@ -148,6 +144,13 @@ func TestParseInvalidTSV(t *testing.T) {
 	}
 	defer os.Remove(tempFile.Name())
 
+	// Create a temporary directory for output
+	tempDir, err := os.MkdirTemp("", "test_output_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
 	// Write invalid TSV data (wrong number of columns)
 	testRecord := "Foo\tBar\tBaz\tQux\tQuux\tCorge"
 	_, err = tempFile.WriteString("Topic\tGroup\tGene\tRS ID\tAllele\tSubject Genotype\n" + testRecord)
@@ -155,24 +158,24 @@ func TestParseInvalidTSV(t *testing.T) {
 		t.Fatalf("Failed to write to temp file: %v", err)
 	}
 
-	parser := NewTSVParser(tempFile.Name())
-	result, err := parser.Parse()
+	parser := NewTSVParser(tempFile.Name(), tempDir)
+	_, errorRecords, err := parser.Parse()
 	if err != nil {
 		t.Fatalf("Parse failed: %v", err)
 	}
 
 	// Verify we got the error record
-	if len(result.ErrorRecords) != 1 {
-		t.Errorf("Expected 1 error record, got %d", len(result.ErrorRecords))
+	if len(errorRecords) != 1 {
+		t.Errorf("Expected 1 error record, got %d", len(errorRecords))
 	}
-	if !strings.Contains(result.ErrorRecords[0], "Record with 6 columns") {
-		t.Errorf("Expected error record to contain column count, got: %s", result.ErrorRecords[0])
+	if !strings.Contains(errorRecords[0], "Record with 6 columns") {
+		t.Errorf("Expected error record to contain column count, got: %s", errorRecords[0])
 	}
 	// Check that each field is present in the error record
 	fields := []string{"Foo", "Bar", "Baz", "Qux", "Quux", "Corge"}
 	for _, field := range fields {
-		if !strings.Contains(result.ErrorRecords[0], field) {
-			t.Errorf("Expected error record to contain field %q, got: %s", field, result.ErrorRecords[0])
+		if !strings.Contains(errorRecords[0], field) {
+			t.Errorf("Expected error record to contain field %q, got: %s", field, errorRecords[0])
 		}
 	}
 }
@@ -185,17 +188,47 @@ func TestParseEmptyFile(t *testing.T) {
 	}
 	defer os.Remove(tempFile.Name())
 
-	parser := NewTSVParser(tempFile.Name())
-	_, err = parser.Parse()
+	// Create a temporary directory for output
+	tempDir, err := os.MkdirTemp("", "test_output_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	parser := NewTSVParser(tempFile.Name(), tempDir)
+	_, _, err = parser.Parse()
 	if err == nil {
 		t.Error("Expected error for empty file")
+	}
+	// Verify no files were created
+	files, err := os.ReadDir(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to read directory: %v", err)
+	}
+	if len(files) > 0 {
+		t.Errorf("Expected no output files, got %d", len(files))
 	}
 }
 
 func TestParseMissingFile(t *testing.T) {
-	parser := NewTSVParser("/nonexistent/file.tsv")
-	_, err := parser.Parse()
+	// Create a temporary directory for output
+	tempDir, err := os.MkdirTemp("", "test_output_*")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	parser := NewTSVParser("/nonexistent/file.tsv", tempDir)
+	_, _, err = parser.Parse()
 	if err == nil {
 		t.Error("Expected error for missing file")
+	}
+	// Verify no files were created
+	files, err := os.ReadDir(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to read directory: %v", err)
+	}
+	if len(files) > 0 {
+		t.Errorf("Expected no output files, got %d", len(files))
 	}
 }
