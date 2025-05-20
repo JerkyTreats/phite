@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/JerkyTreats/PHITE/converter/internal/models"
 	"github.com/JerkyTreats/PHITE/converter/pkg/logger"
@@ -103,6 +104,9 @@ func (p *TSVParser) Parse() ([]string, []string, error) {
 	}
 	defer file.Close()
 
+	// Create map to store filenames for each grouping
+	groupFilenames := make(map[string]string)
+
 	reader := csv.NewReader(file)
 	reader.Comma = '\t' // TSV format
 
@@ -183,7 +187,8 @@ func (p *TSVParser) Parse() ([]string, []string, error) {
 
 	// Save each grouping to its own JSON file
 	for _, grouping := range groupings {
-		filename := fmt.Sprintf("%s.json", grouping.Name)
+		// Generate filename-safe version of group name
+		filename := fmt.Sprintf("%s.json", strings.ReplaceAll(grouping.Name, "/", "-"))
 		outputPath := filepath.Join(p.outputDir, filename)
 		
 		if err := SaveResult(&models.ConversionResult{Groupings: []models.Grouping{*grouping}}, outputPath); err != nil {
@@ -191,6 +196,14 @@ func (p *TSVParser) Parse() ([]string, []string, error) {
 			return nil, nil, fmt.Errorf("failed to save grouping %s: %w", grouping.Name, err)
 		}
 		outputFiles = append(outputFiles, outputPath)
+		groupFilenames[grouping.Name] = filename
+	}
+
+	// Log the filename mappings
+	for groupName, filename := range groupFilenames {
+		if groupName != filename[:len(filename)-5] { // Remove .json extension
+			logger.Info("group name contains special characters", "group", groupName, "file", filename)
+		}
 	}
 
 	if len(errorRecords) > 0 {
