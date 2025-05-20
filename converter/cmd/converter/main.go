@@ -4,14 +4,21 @@ import (
 	"flag"
 	"path/filepath"
 
+	"github.com/JerkyTreats/PHITE/converter/internal/config"
 	"github.com/JerkyTreats/PHITE/converter/internal/converter"
 	"github.com/JerkyTreats/PHITE/converter/pkg/logger"
 )
 
 func main() {
+	// Load configuration
+	config, err := config.LoadConfig()
+	if err != nil {
+		logger.Fatal(err, "failed to load configuration")
+	}
+
 	inputFile := flag.String("input", "", "path to input TSV file")
-	outputDir := flag.String("output-dir", "output", "directory to save JSON files")
-	logLevel := flag.String("log-level", "info", "logging level (debug, info, error, fatal)")
+	outputDir := flag.String("output-dir", config.GetOutputDir(), "directory to save JSON files")
+	logLevel := flag.String("log-level", config.GetLogLevel(), "logging level (debug, info, error, fatal)")
 	flag.Parse()
 
 	// Set logging level
@@ -27,6 +34,14 @@ func main() {
 	absOutputDir, err := filepath.Abs(*outputDir)
 	if err != nil {
 		logger.Fatal(err, "failed to get absolute path for output directory")
+	}
+
+	// Save updated configuration if output directory was changed
+	if *outputDir != config.GetOutputDir() {
+		config.SetOutputDir(*outputDir)
+		if err := config.Save(); err != nil {
+			logger.Fatal(err, "failed to save configuration")
+		}
 	}
 
 	parser := converter.NewTSVParser(*inputFile, absOutputDir)
