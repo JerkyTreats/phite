@@ -2,6 +2,8 @@ package logger
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -32,6 +34,7 @@ func Error(err error, msg string, fields ...interface{}) {
 
 func Fatal(err error, msg string, fields ...interface{}) {
 	log.Fatal().Err(err).Fields(fields).Msg(msg)
+	os.Exit(1)
 }
 
 func WithFields(fields ...interface{}) zerolog.Context {
@@ -54,5 +57,3 @@ func SetLevel(level string) error {
 	}
 	return nil
 }
-
-

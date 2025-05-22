@@ -5,6 +5,7 @@
 package models
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -202,6 +203,15 @@ type Grouping struct {
 	SNP []SNP `json:"SNP"`
 }
 
+// ToString returns the Grouping as a pretty-printed JSON string
+func (g *Grouping) ToString() string {
+	b, err := json.MarshalIndent(g, "", "  ")
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
 // ConversionResult represents the final output of the SNP conversion process.
 // It contains a single Grouping of SNPs organized by their biological relationships.
 type ConversionResult struct {
@@ -225,7 +235,6 @@ func AddIfMatch(snps []SNP, snp SNP, matchLevel config.MatchLevel) []SNP {
 	}
 	return snps
 }
-
 
 // DetermineMatch determines the match type between a subject's genotype and
 // the reference allele.

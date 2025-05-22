@@ -16,6 +16,12 @@ func main() {
 		logger.Fatal(err, "failed to load configuration")
 	}
 
+	// Load env
+	err = config.LoadEnv()
+	if err != nil {
+		logger.Fatal(err, "failed to load environment variables")
+	}
+
 	inputFile := flag.String("input", "", "path to input TSV file")
 	outputDir := flag.String("output-dir", config.GetOutputDir(), "directory to save JSON files")
 	logLevel := flag.String("log-level", config.GetLogLevel(), "logging level (debug, info, error, fatal)")

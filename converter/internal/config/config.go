@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
 // MatchLevel specifies the minimum match level to include in output
@@ -16,9 +18,9 @@ import (
 type MatchLevel string
 
 const (
-	MatchLevelNone   MatchLevel = "None"
+	MatchLevelNone    MatchLevel = "None"
 	MatchLevelPartial MatchLevel = "Partial"
-	MatchLevelFull   MatchLevel = "Full"
+	MatchLevelFull    MatchLevel = "Full"
 )
 
 // ValidMatchLevel returns true if the match level is valid
@@ -40,14 +42,15 @@ type Config interface {
 	GetMatchLevel() MatchLevel
 	SetOutputDir(dir string)
 	Save() error
+	LoadEnv() error
 }
 
 // DefaultConfig implements the Config interface
 //go:generate mockery --name DefaultConfig --output mocks
 
 type DefaultConfig struct {
-	LogLevel  string    `json:"log_level"`
-	OutputDir string    `json:"output_dir"`
+	LogLevel   string     `json:"log_level"`
+	OutputDir  string     `json:"output_dir"`
 	MatchLevel MatchLevel `json:"match_level"`
 }
 
@@ -129,4 +132,13 @@ func LoadConfig() (Config, error) {
 	}
 
 	return &config, nil
+}
+
+func (c *DefaultConfig) LoadEnv() error {
+	err := godotenv.Load()
+	if err != nil {
+		return fmt.Errorf("error loading .env file: %v", err)
+	}
+
+	return nil
 }
