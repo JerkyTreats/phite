@@ -36,3 +36,12 @@ Create a Python script to compute polygenic risk scores (PRS) for each trait clu
 
 ## Directory
 - Place script in `risk-scoring/scripts/polygenic_score.py`.
+
+---
+
+## Unit Tests
+- Test PRS calculation for a known genotype and effect size.
+- Test output DataFrame includes `topic`, `topic_uri`, `PRS`.
+- Test missing or ambiguous genotype values handled as specified (skip, warn, or fail).
+- Test output for empty input is empty DataFrame.
+- Test error raised if required columns missing in input.

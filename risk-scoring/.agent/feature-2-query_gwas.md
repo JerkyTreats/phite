@@ -34,3 +34,13 @@ Create a Python script to load GWAS association data from a local DuckDB or Parq
 
 ## Directory
 - Place script in `risk-scoring/scripts/query_gwas.py`.
+
+---
+
+## Unit Tests
+- Test filtering returns only matching `rsid` values.
+- Test output DataFrame matches `associations_clean` schema.
+- Test empty input list returns empty DataFrame.
+- Test invalid input DataFrame (missing `rsid`) raises error.
+- Test performance on large input (mock or use sample data).
+- Test error handling for missing GWAS source file.

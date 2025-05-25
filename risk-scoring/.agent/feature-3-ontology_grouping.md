@@ -35,3 +35,12 @@ Create a Python script to group SNP associations by ontology or trait cluster. T
 
 ## Directory
 - Place script in `risk-scoring/scripts/ontology_grouping.py`.
+
+---
+
+## Unit Tests
+- Test correct join/grouping by trait ontology.
+- Test output includes required trait/topic columns.
+- Test handling of ambiguous or missing trait mappings.
+- Test invalid mapping file schema raises error.
+- Test output matches expected groupings for sample input.

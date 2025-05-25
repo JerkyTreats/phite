@@ -28,15 +28,20 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-If `requirements.txt` does not exist, create one with the following common packages (edit as needed):
+The main dependencies are listed in `requirements.txt`:
 
 ```
-pandas
-duckdb
-jinja2
-markdown
+pandas>=2.0.0
+jinja2>=3.0.0
+duckdb>=0.8.0
+markdown>=3.4.0
+pytest>=7.0.0
 ```
+Install them with:
 
+```bash
+pip install -r requirements.txt
+```
 ### 4. Directory Structure
 - `scripts/` – Core pipeline scripts (e.g., `load_user_genotype.py`, `query_gwas.py`, etc.)
 - `reports/` – Output reports (Markdown or HTML)
@@ -52,7 +57,12 @@ python scripts/report_generator.py --prs path/to/prs.csv --grouping path/to/grou
 ```
 
 ### 6. Testing
-Add and run tests using [pytest](https://docs.pytest.org/):
+
+Add your tests in a `tests/` directory. To run all tests using [pytest](https://docs.pytest.org/):
+
+```bash
+pytest tests/
+```
 
 ```bash
 pip install pytest
@@ -63,7 +73,7 @@ pytest tests/
 
 ## Additional Notes
 - All processing remains local; no data is transmitted externally.
-- See `.agent/data_model_spec.md` for canonical data structure specifications.
+- See `.agent/data_model_spec.md` for canonical data structure specifications and required DataFrame schemas.
 - For feature briefs and implementation details, see `.agent/feature-*.md` files.
 
 ---

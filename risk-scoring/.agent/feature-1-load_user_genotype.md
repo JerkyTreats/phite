@@ -30,3 +30,13 @@ Create a Python script to load a user genotype file in `.txt` or `.csv` format (
 
 ## Directory
 - Place script in `risk-scoring/scripts/load_user_genotype.py`.
+
+---
+
+## Unit Tests
+- Test valid AncestryDNA/23andMe file loads correctly.
+- Test output DataFrame has columns `rsid`, `genotype` only.
+- Test missing required columns raises clear error.
+- Test invalid file type (e.g., `.xlsx`) raises error.
+- Test malformed genotype file (e.g., wrong delimiter, missing values) handled gracefully.
+- Test no network calls are made (mock network libraries if needed).

@@ -35,3 +35,13 @@ Create a Python script to generate a summary report from PRS and trait group dat
 
 ## Directory
 - Place script in `risk-scoring/scripts/report_generator.py`.
+
+---
+
+## Unit Tests
+- Test report is generated and saved in Markdown/HTML.
+- Test report output contains all required sections (summary, per-trait details).
+- Test missing fields in input data handled gracefully (skip/warn/fail as specified).
+- Test output file follows naming convention and is saved locally.
+- Test input validation: invalid PRS/grouping data raises clear error.
+- Test no network calls or data transmission occurs.
