@@ -2,7 +2,7 @@ import os
 import tempfile
 import pandas as pd
 import pytest
-from load_user_genotype import load_user_genotype, GenotypeFileError
+from scripts.load_user_genotype import load_user_genotype, GenotypeFileError
 
 def write_temp_file(contents, suffix):
     fd, path = tempfile.mkstemp(suffix=suffix)

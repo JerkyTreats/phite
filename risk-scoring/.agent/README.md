@@ -25,6 +25,13 @@ This agent will implement a **Python-based genomic analysis system** that:
 
 ## 🗂️ Directory Structure
 
+### 🧪 Testing Directory Pattern
+- All test files must be placed in `risk-scoring/tests/`.
+- Test files must be named `test_*.py` and correspond to the module or script they test.
+- The `tests/` directory may mirror the structure of `scripts/` if submodules exist.
+- No test files are allowed in `scripts/` or other non-test directories.
+
+
 ```
 phite/
 ├── gwas/
