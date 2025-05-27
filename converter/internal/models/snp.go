@@ -218,6 +218,13 @@ type ConversionResult struct {
 	Grouping Grouping `json:"Grouping"`
 }
 
+// TopicOutput defines the structure for JSON output when grouping by topic.
+// It contains the topic name and a map of group names to their SNPs.
+type TopicOutput struct {
+	Topic     string         `json:"Topic"`
+	Groupings map[string][]SNP `json:"Groupings"`
+}
+
 // AddIfMatch appends snp to the slice if it matches the config match level.
 func AddIfMatch(snps []SNP, snp SNP, matchLevel config.MatchLevel) []SNP {
 	match := DetermineMatch(snp.Subject.Genotype, snp.Allele)

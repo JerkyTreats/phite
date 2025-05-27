@@ -26,9 +26,10 @@ type ParseResult struct {
 // TSVParser is a parser for TSV files containing genetic SNP data.
 // It converts the TSV format into a structured JSON format with groupings of SNPs.
 type TSVParser struct {
-	inputFile string
-	outputDir string
-	config    config.Config
+	inputFile    string
+	outputDir    string
+	config       config.Config
+	groupingMode string // "group" or "topic"
 }
 
 // SaveResult saves a ConversionResult to the specified output file in JSON format.
@@ -46,6 +47,23 @@ type TSVParser struct {
 //   - os.ErrPermission: If insufficient permissions to write to file
 //   - json.MarshalIndent: If JSON encoding fails
 //   - os.WriteFile: If file write operation fails
+func saveTopicOutput(topicOutput *models.TopicOutput, outputFile string) error {
+	jsonBytes, err := json.MarshalIndent(topicOutput, "", "  ")
+	if err != nil {
+		logger.Error(err, "failed to marshal TopicOutput JSON")
+		return fmt.Errorf("failed to marshal TopicOutput JSON: %w", err)
+	}
+
+	err = os.WriteFile(outputFile, jsonBytes, 0644)
+	if err != nil {
+		logger.Error(err, "failed to write TopicOutput file")
+		return fmt.Errorf("failed to write TopicOutput file: %w", err)
+	}
+
+	logger.Info("saved TopicOutput to file", "file", outputFile)
+	return nil
+}
+
 func SaveResult(result *models.ConversionResult, outputFile string) error {
 	jsonBytes, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
@@ -66,15 +84,16 @@ func SaveResult(result *models.ConversionResult, outputFile string) error {
 // NewTSVParser creates a new TSVParser instance with the specified input file.
 // The input file should be a TSV file with the following columns:
 // Topic, Group, Gene, RS ID, Allele, Subject Genotype, Notes
-func NewTSVParser(inputFile string, outputDir string) *TSVParser {
+func NewTSVParser(inputFile string, outputDir string, groupingMode string) *TSVParser {
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		logger.Fatal(err, "failed to load configuration")
 	}
 	return &TSVParser{
-		inputFile: inputFile,
-		outputDir: outputDir,
-		config:    cfg,
+		inputFile:    inputFile,
+		outputDir:    outputDir,
+		config:       cfg,
+		groupingMode: groupingMode,
 	}
 }
 
@@ -104,6 +123,13 @@ func NewTSVParser(inputFile string, outputDir string) *TSVParser {
 // - csv.ParseError: If the file cannot be parsed as TSV
 // - fmt.Errorf: For invalid record formats or other parsing errors
 func (p *TSVParser) Parse() ([]string, []string, error) {
+	// Validate groupingMode
+	if p.groupingMode != "group" && p.groupingMode != "topic" {
+		errMsg := fmt.Sprintf("invalid grouping mode: %s. Must be 'group' or 'topic'", p.groupingMode)
+		logger.Error(nil, errMsg)
+		return nil, nil, fmt.Errorf("invalid grouping mode: %s. Must be 'group' or 'topic'", p.groupingMode)
+	}
+
 	file, err := os.Open(p.inputFile)
 	if err != nil {
 		logger.Error(err, "failed to open file")
@@ -130,9 +156,6 @@ func (p *TSVParser) Parse() ([]string, []string, error) {
 	}
 	records = records[1:]
 
-	// Create map to group SNPs by Group
-	groupings := make(map[string]*models.Grouping)
-
 	var errorRecords []string
 	var outputFiles []string
 
@@ -142,72 +165,136 @@ func (p *TSVParser) Parse() ([]string, []string, error) {
 		return nil, nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	for _, record := range records {
-		logger.Debug("Processing record", "record", record)
+	if p.groupingMode == "topic" {
+		// Data structure for topic mode: map[topicName] -> models.TopicOutput
+		topicsData := make(map[string]*models.TopicOutput)
 
-		if len(record) != 7 {
-			errorRecords = append(errorRecords, fmt.Sprintf("Record with %d columns: %v", len(record), record))
-			logger.Info("Invalid record format", "record", record)
-			continue
-		}
-
-		group := record[1]    // Group column
-		topic := record[0]    // Topic column
-		genotype := record[5] // Genotype column
-
-		
-		// Create new grouping if it doesn't exist
-		if _, exists := groupings[group]; !exists {
-			newGroup := &models.Grouping{
-				Topic: topic,
-				Name:  group,
+		for _, record := range records {
+			logger.Debug("Processing record for topic mode", "record", record)
+			if len(record) != 7 {
+				errorRecords = append(errorRecords, fmt.Sprintf("Record with %d columns: %v", len(record), record))
+				logger.Info("Invalid record format", "record", record)
+				continue
 			}
-			groupings[group] = newGroup
-			logger.Debug("New group created", "group", newGroup)
+
+			topicName := record[0]
+			groupName := record[1]
+			genotype := record[5]
+
+			// Create new TopicOutput if it doesn't exist for this topicName
+			if _, exists := topicsData[topicName]; !exists {
+				topicsData[topicName] = &models.TopicOutput{
+					Topic:     topicName,
+					Groupings: make(map[string][]models.SNP),
+				}
+				logger.Debug("New topic entry created", "topicName", topicName)
+			}
+
+			// Ensure the specific group map exists within the topic's groupings
+			if _, exists := topicsData[topicName].Groupings[groupName]; !exists {
+				topicsData[topicName].Groupings[groupName] = []models.SNP{}
+			}
+
+			snp, err := models.NewSNP(record[2], record[3], record[4], record[6], genotype)
+			if err != nil {
+				errorRecords = append(errorRecords, fmt.Sprintf("Record validation failed: %v", record))
+				logger.Info("Skipping SNP due to validation error", "error", err)
+				continue
+			}
+
+			topicsData[topicName].Groupings[groupName] = append(topicsData[topicName].Groupings[groupName], *snp)
+			logger.Debug("SNP added to topic-group", "topicName", topicName, "groupName", groupName, "snpRSID", snp.RSID)
 		}
 
-		// Create and validate SNP
-		snp, err := models.NewSNP(
-			record[2], // Gene
-			record[3], // RSID
-			record[4], // Allele
-			record[6], // Notes
-			genotype,  // Genotype
-		)
+		// Save each topic's data to its own JSON file
+		for topicName, topicOutputData := range topicsData {
+			filename := fmt.Sprintf("%s.json", strings.ReplaceAll(topicName, "/", "-"))
+			outPath := filepath.Join(p.outputDir, filename)
 
-		if err != nil {
-			errorRecords = append(errorRecords, fmt.Sprintf("Record validation failed: %v", record))
-			logger.Info("Skipping SNP due to validation error", "error", err)
-			continue
+			// Apply AddIfMatch filtering to each group's SNPs within the topic
+			filteredGroupings := make(map[string][]models.SNP)
+			for groupName, snpList := range topicOutputData.Groupings {
+				var filteredSNPs []models.SNP
+				for _, snp := range snpList {
+					filteredSNPs = models.AddIfMatch(filteredSNPs, snp, p.config.GetMatchLevel())
+				}
+				if len(filteredSNPs) > 0 { // Only include group if it has SNPs after filtering
+				    filteredGroupings[groupName] = filteredSNPs
+				}
+			}
+			topicOutputData.Groupings = filteredGroupings
+
+			if len(topicOutputData.Groupings) == 0 && p.config.GetMatchLevel() != config.MatchLevelNone { // Don't save empty files unless match level is None
+			    logger.Info("Skipping empty topic output after filtering", "topicName", topicName, "matchLevel", p.config.GetMatchLevel())
+			    continue
+			}
+
+			if err := saveTopicOutput(topicOutputData, outPath); err != nil {
+				logger.Error(err, "failed to save topic output", "topic", topicName)
+				return nil, nil, fmt.Errorf("failed to save topic output %s: %w", topicName, err)
+			}
+			outputFiles = append(outputFiles, outPath)
+			groupFilenames[topicName] = filename // Using topicName as key for consistency in logging
 		}
 
-		logger.Debug("SNP created", "snp", snp)
-		groupings[group].SNP = append(groupings[group].SNP, *snp)
-		logger.Debug("SNP added to group", "group", group, "snp", snp)
-	}
+	} else { // Original logic for groupingMode == "group"
+		groupings := make(map[string]*models.Grouping)
+		for _, record := range records {
+			logger.Debug("Processing record for group mode", "record", record)
+			if len(record) != 7 {
+				errorRecords = append(errorRecords, fmt.Sprintf("Record with %d columns: %v", len(record), record))
+				logger.Info("Invalid record format", "record", record)
+				continue
+			}
 
-	// Save each grouping to its own JSON file
-	for _, grouping := range groupings {
-		// Generate filename-safe version of group name
-		filename := fmt.Sprintf("%s.json", strings.ReplaceAll(grouping.Name, "/", "-"))
-		outputPath := filepath.Join(p.outputDir, filename)
+			actualTopic := record[0]
+			groupKey := record[1] // Group column is the key
+			genotype := record[5]
 
-		// Use AddIfMatch to build the output SNP slice
-		var filteredSNPs []models.SNP
-		for _, snp := range grouping.SNP {
-			filteredSNPs = models.AddIfMatch(filteredSNPs, snp, p.config.GetMatchLevel())
+			if _, exists := groupings[groupKey]; !exists {
+				newGroup := &models.Grouping{
+					Topic: actualTopic,
+					Name:  groupKey,
+				}
+				groupings[groupKey] = newGroup
+				logger.Debug("New group created", "groupKey", groupKey)
+			}
+
+			snp, err := models.NewSNP(record[2], record[3], record[4], record[6], genotype)
+			if err != nil {
+				errorRecords = append(errorRecords, fmt.Sprintf("Record validation failed: %v", record))
+				logger.Info("Skipping SNP due to validation error", "error", err)
+				continue
+			}
+			groupings[groupKey].SNP = append(groupings[groupKey].SNP, *snp)
+			logger.Debug("SNP added to group", "groupKey", groupKey, "snpRSID", snp.RSID)
 		}
 
-		if err := SaveResult(&models.ConversionResult{Grouping: models.Grouping{
-			Topic: grouping.Topic,
-			Name:  grouping.Name,
-			SNP:   filteredSNPs,
-		}}, outputPath); err != nil {
-			logger.Error(err, "failed to save grouping", "group", grouping.Name)
-			return nil, nil, fmt.Errorf("failed to save grouping %s: %w", grouping.Name, err)
+		for groupName, groupingData := range groupings {
+			filename := fmt.Sprintf("%s.json", strings.ReplaceAll(groupName, "/", "-"))
+			outPath := filepath.Join(p.outputDir, filename)
+
+			var filteredSNPs []models.SNP
+			for _, snp := range groupingData.SNP {
+				filteredSNPs = models.AddIfMatch(filteredSNPs, snp, p.config.GetMatchLevel())
+			}
+			
+			if len(filteredSNPs) == 0 && p.config.GetMatchLevel() != config.MatchLevelNone { // Don't save empty files unless match level is None
+			    logger.Info("Skipping empty group output after filtering", "groupName", groupName, "matchLevel", p.config.GetMatchLevel())
+			    continue
+			}
+
+			if err := SaveResult(&models.ConversionResult{Grouping: models.Grouping{
+				Topic: groupingData.Topic,
+				Name:  groupName,
+				SNP:   filteredSNPs,
+			}}, outPath); err != nil {
+				logger.Error(err, "failed to save grouping", "group", groupName)
+				return nil, nil, fmt.Errorf("failed to save grouping %s: %w", groupName, err)
+			}
+			outputFiles = append(outputFiles, outPath)
+			groupFilenames[groupName] = filename
 		}
-		outputFiles = append(outputFiles, outputPath)
-		groupFilenames[grouping.Name] = filename
 	}
 
 	// Log the filename mappings

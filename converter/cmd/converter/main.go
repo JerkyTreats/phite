@@ -16,15 +16,10 @@ func main() {
 		logger.Fatal(err, "failed to load configuration")
 	}
 
-	// Load env
-	err = config.LoadEnv()
-	if err != nil {
-		logger.Fatal(err, "failed to load environment variables")
-	}
-
 	inputFile := flag.String("input", "", "path to input TSV file")
 	outputDir := flag.String("output-dir", config.GetOutputDir(), "directory to save JSON files")
 	logLevel := flag.String("log-level", config.GetLogLevel(), "logging level (debug, info, error, fatal)")
+	groupingMode := flag.String("grouping-mode", "group", "grouping mode: 'group' or 'topic'") // New flag
 	flag.Parse()
 
 	// Set logging level
@@ -50,7 +45,7 @@ func main() {
 		}
 	}
 
-	parser := converter.NewTSVParser(*inputFile, absOutputDir)
+	parser := converter.NewTSVParser(*inputFile, absOutputDir, *groupingMode)
 	outputFiles, errorRecords, err := parser.Parse()
 	if err != nil {
 		logger.Fatal(err, "failed to parse TSV")
