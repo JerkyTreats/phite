@@ -1,17 +1,33 @@
--- Create the studies_clean table from the studies.tsv file
-CREATE OR REPLACE TABLE studies_clean AS
+-- Step 1: Create table with constraint
+CREATE TABLE studies_clean (
+  study_id TEXT PRIMARY KEY,
+  pubmed_id TEXT,
+  author TEXT,
+  pub_date TEXT,
+  journal TEXT,
+  initial_sample_size TEXT,
+  replication_sample_size TEXT,
+  platform TEXT,
+  genotyping_tech TEXT,
+  cohort TEXT,
+  has_summary_stats TEXT,
+  summary_url TEXT
+);
+
+-- Step 2: Insert data
+INSERT INTO studies_clean
 SELECT DISTINCT
-  "STUDY ACCESSION" AS study_id,
-  "PUBMED ID" AS pubmed_id,
-  "FIRST AUTHOR" AS author,
-  "DATE" AS pub_date,
-  "JOURNAL" AS journal,
-  "INITIAL SAMPLE SIZE" AS initial_sample_size,
-  "REPLICATION SAMPLE SIZE" AS replication_sample_size,
-  "PLATFORM [SNPS PASSING QC]" AS platform,
-  "GENOTYPING TECHNOLOGY" AS genotyping_tech,
-  "COHORT" AS cohort,
-  "FULL SUMMARY STATISTICS" AS has_summary_stats,
-  "SUMMARY STATS LOCATION" AS summary_url
-FROM read_csv_auto('gwas/studies.tsv', delim='\t', header=true)
+  "STUDY ACCESSION",
+  "PUBMED ID",
+  "FIRST AUTHOR",
+  "DATE",
+  "JOURNAL",
+  "INITIAL SAMPLE SIZE",
+  "REPLICATION SAMPLE SIZE",
+  "PLATFORM [SNPS PASSING QC]",
+  "GENOTYPING TECHNOLOGY",
+  "COHORT",
+  "FULL SUMMARY STATISTICS",
+  "SUMMARY STATS LOCATION"
+FROM read_csv_auto('studies.tsv', delim='\t', header=true)
 WHERE "STUDY ACCESSION" IS NOT NULL;
