@@ -39,11 +39,13 @@ Welcome to the PHITE polygenic risk calculator project. This document provides c
 - **Agent briefs:** All agent briefs must reside in `.agent/` within the project root.
 - **Data model:** The canonical data model is in `.agent/data_model.md`.
 - **Tests:**
-  - All test files must be placed in a top-level `tests/` directory under the project root.
-  - Test files must be named `test_<module>.go`, mirroring the structure of the source code as needed.
-  - Example:
-    - Source: `prs/calculator.go`
-    - Test: `tests/prs/test_calculator.go`
+  - **Go-specific:** For Go code, all test files must be placed alongside the code they test, following standard Go idioms.
+    - Test files must be named with the `_test.go` suffix (e.g., `genotype_parser_test.go`).
+    - Tests should be in the same package or in a `_test` package within the same directory as the implementation.
+    - Example:
+      - Source: `genotype/genotype_parser.go`
+      - Test: `genotype/genotype_parser_test.go`
+  - For other languages, tests should be placed in a top-level `tests/` directory, mirroring the source structure if needed.
 - **Keep the codebase organized and modular.**
 
 ## Test File Naming and Structure

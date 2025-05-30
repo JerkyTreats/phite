@@ -1,0 +1,13 @@
+#AncestryDNA raw data
+#Processed by AncestryDNA
+#Generation Time: Mon Jan 01 00:00:00 2024
+#Version: 2.0
+#
+#Below is a subset of your AncestryDNA data.
+#Fields below are: rsid, chromosome, position, allele1, allele2
+rsid	chromosome	position	allele1	allele2
+rs1001	1	100	A	G
+rs1002	1	200	C	C
+rs1003	2	300	T	A
+rs1004	2	400	G	R
+rs1005	3	500	D	I

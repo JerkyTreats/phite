@@ -1,0 +1,72 @@
+package gwas
+
+import (
+	"testing"
+	"reflect"
+)
+
+
+func TestFetchAndAnnotateGWAS_BasicAnnotation(t *testing.T) {
+	input := GWASDataFetcherInput{
+		ValidatedSNPs: []ValidatedSNP{
+			{RSID: "rs1", Genotype: "AA", FoundInGWAS: true},
+			{RSID: "rs2", Genotype: "AG", FoundInGWAS: true},
+		},
+		AssociationsClean: []GWASSNPRecord{
+			{RSID: "rs1", RiskAllele: "A", Beta: 0.2, Trait: "height"},
+			{RSID: "rs2", RiskAllele: "G", Beta: -0.1, Trait: "height"},
+		},
+	}
+	want := []AnnotatedSNP{
+		{RSID: "rs1", Genotype: "AA", RiskAllele: "A", Beta: 0.2, Dosage: 2, Trait: "height"},
+		{RSID: "rs2", Genotype: "AG", RiskAllele: "G", Beta: -0.1, Dosage: 1, Trait: "height"},
+	}
+	out := FetchAndAnnotateGWAS(input)
+	if !reflect.DeepEqual(out.AnnotatedSNPs, want) {
+		t.Errorf("Basic annotation failed. Got %+v, want %+v", out.AnnotatedSNPs, want)
+	}
+}
+
+func TestFetchAndAnnotateGWAS_MissingGWAS(t *testing.T) {
+	input := GWASDataFetcherInput{
+		ValidatedSNPs: []ValidatedSNP{
+			{RSID: "rs3", Genotype: "TT", FoundInGWAS: false},
+		},
+		AssociationsClean: []GWASSNPRecord{},
+	}
+	out := FetchAndAnnotateGWAS(input)
+	if len(out.AnnotatedSNPs) != 0 {
+		t.Errorf("Expected no annotations for missing GWAS, got %+v", out.AnnotatedSNPs)
+	}
+}
+
+func TestFetchAndAnnotateGWAS_MultipleAssociations(t *testing.T) {
+	input := GWASDataFetcherInput{
+		ValidatedSNPs: []ValidatedSNP{
+			{RSID: "rs4", Genotype: "CC", FoundInGWAS: true},
+		},
+		AssociationsClean: []GWASSNPRecord{
+			{RSID: "rs4", RiskAllele: "C", Beta: 0.3, Trait: "BMI"},
+			{RSID: "rs4", RiskAllele: "C", Beta: 0.2, Trait: "height"},
+		},
+	}
+	out := FetchAndAnnotateGWAS(input)
+	if len(out.AnnotatedSNPs) != 2 {
+		t.Errorf("Expected two annotations for multiple associations, got %+v", out.AnnotatedSNPs)
+	}
+}
+
+func TestFetchAndAnnotateGWAS_AmbiguousGenotype(t *testing.T) {
+	input := GWASDataFetcherInput{
+		ValidatedSNPs: []ValidatedSNP{
+			{RSID: "rs5", Genotype: "NN", FoundInGWAS: true},
+		},
+		AssociationsClean: []GWASSNPRecord{
+			{RSID: "rs5", RiskAllele: "N", Beta: 0.1, Trait: "height"},
+		},
+	}
+	out := FetchAndAnnotateGWAS(input)
+	if len(out.AnnotatedSNPs) != 1 || out.AnnotatedSNPs[0].Dosage != 0 {
+		t.Errorf("Ambiguous genotype should yield dosage 0. Got %+v", out.AnnotatedSNPs)
+	}
+}

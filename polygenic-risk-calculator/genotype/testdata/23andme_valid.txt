@@ -1,0 +1,10 @@
+# 23andMe raw data
+#
+# Below is a subset of your 23andMe data.
+# Fields below are: rsid, chromosome, position, genotype
+rsid	chromosome	position	genotype
+rs2001	1	1000	AG
+rs2002	1	2000	CC
+rs2003	2	3000	TA
+rs2004	2	4000	GR
+rs2005	3	5000	DI

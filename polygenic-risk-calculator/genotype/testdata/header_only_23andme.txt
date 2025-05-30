@@ -1,0 +1,5 @@
+# 23andMe raw data
+#
+# Below is a subset of your 23andMe data.
+# Fields below are: rsid, chromosome, position, genotype
+rsid	chromosome	position	genotype

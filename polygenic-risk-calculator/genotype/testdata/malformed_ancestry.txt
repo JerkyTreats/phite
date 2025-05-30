@@ -1,0 +1,6 @@
+#AncestryDNA raw data
+rsid	chromosome	position	allele1	allele2
+rs1001	1	100	A	G
+thisisnotacorrectline
+rs1002	1	200	C	C
+rs1003	2	300	T	A	ExtraColumn
