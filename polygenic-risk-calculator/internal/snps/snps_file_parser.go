@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,108 +14,132 @@ import (
 // ParseSNPsFromFile parses a list of rsids from a file (CSV or JSON).
 // Returns a deduplicated, trimmed slice of rsids or an error.
 func ParseSNPsFromFile(path string) ([]string, error) {
-	ext := filepath.Ext(path)
+	ext := strings.ToLower(filepath.Ext(path))
+
+	parsers := map[string]func(io.Reader) ([]string, error){
+		".json": parseJSON,
+		".csv":  parseCSV,
+		".tsv":  parseTSV,
+	}
+
+	parser, ok := parsers[ext]
+	if !ok {
+		supported := make([]string, 0, len(parsers))
+		for k := range parsers {
+			supported = append(supported, k)
+		}
+		return nil, fmt.Errorf("unsupported file extension: %s (supported: %v)", ext, supported)
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
-	switch ext {
-	case ".json":
-		var rsids []string
-		if err := json.NewDecoder(f).Decode(&rsids); err != nil {
-			return nil, err
+	return parser(f)
+}
+
+func parseJSON(r io.Reader) ([]string, error) {
+	var rsids []string
+	dec := json.NewDecoder(r)
+	if err := dec.Decode(&rsids); err != nil {
+		return nil, errors.New("malformed JSON: " + err.Error())
+	}
+	for i := range rsids {
+		rsids[i] = strings.TrimSpace(rsids[i])
+		if rsids[i] == "" {
+			return nil, errors.New("empty rsid found in input")
 		}
-		// SNPS_TRIM_JSON
-		for i := range rsids {
-			rsids[i] = strings.TrimSpace(rsids[i])
+	}
+	// Deduplicate
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(rsids))
+	for _, r := range rsids {
+		if _, exists := seen[r]; !exists {
+			seen[r] = struct{}{}
+			out = append(out, r)
 		}
-		// Deduplicate and validate
-		seen := make(map[string]struct{})
-		out := make([]string, 0, len(rsids))
-		for _, r := range rsids {
-			if r == "" {
-				return nil, errors.New("empty rsid found in input")
-			}
-			if _, exists := seen[r]; !exists {
-				seen[r] = struct{}{}
-				out = append(out, r)
-			}
+	}
+	return out, nil
+}
+
+func parseCSV(r io.Reader) ([]string, error) {
+	return parseDelimited(r, ',')
+}
+
+func parseTSV(r io.Reader) ([]string, error) {
+	return parseDelimited(r, '\t')
+}
+
+func parseDelimited(r io.Reader, sep rune) ([]string, error) {
+	rsids := []string{}
+	scanner := bufio.NewScanner(r)
+	var rsidColIdx int = -1
+	headerParsed := false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
 		}
-		return out, nil
-	case ".csv":
-		var rsids []string
-		scanner := bufio.NewScanner(f)
-		var rsidColIdx int = -1
-		headerParsed := false
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
+		if !headerParsed {
+			headerParsed = true
+			fields := splitDelimited(line, sep)
+			if len(fields) == 1 {
+				if strings.EqualFold(fields[0], "rsid") {
+					continue // skip header
+				}
+				rsids = append(rsids, fields[0])
 				continue
 			}
-			// Parse header if not done
-			if !headerParsed {
-				headerParsed = true
-				fields := splitCSV(line)
-				if len(fields) == 1 {
-					// Single column: treat as header if "rsid", else treat as data
-					if strings.EqualFold(fields[0], "rsid") {
-						continue // skip header
-					}
-					// No header, treat as data
-					rsids = append(rsids, fields[0])
-					continue
+			for i, name := range fields {
+				norm := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(name), " ", ""))
+				if norm == "rsid" {
+					rsidColIdx = i
+					break
 				}
-				// Multi-column: look for rsid column
-				for i, name := range fields {
-					if strings.EqualFold(strings.TrimSpace(name), "rsid") {
-						rsidColIdx = i
-						break
-					}
-				}
-				if rsidColIdx == -1 {
-					return nil, errors.New("CSV header does not contain 'rsid' column")
-				}
-				continue // header parsed, next lines are data
 			}
-			// Data rows
-			fields := splitCSV(line)
-			if rsidColIdx != -1 {
-				if rsidColIdx >= len(fields) {
-					return nil, errors.New("row missing rsid column")
-				}
-				rsids = append(rsids, fields[rsidColIdx])
-			} else {
-				rsids = append(rsids, fields[0])
+			if rsidColIdx == -1 {
+				return nil, errors.New("header does not contain 'rsid' column")
 			}
+			continue
 		}
-		if err := scanner.Err(); err != nil {
-			return nil, err
-		}
-		// SNPS_TRIM_CSV
-		for i := range rsids {
-			rsids[i] = strings.TrimSpace(rsids[i])
-			if strings.ContainsRune(rsids[i], '\x00') {
-				return nil, errors.New("malformed CSV: null byte found")
+		fields := splitDelimited(line, sep)
+		if rsidColIdx != -1 {
+			if rsidColIdx >= len(fields) {
+				// Skip short rows (e.g., due to trailing header columns or malformed data)
+				continue
 			}
+			rsids = append(rsids, fields[rsidColIdx])
+		} else {
+			rsids = append(rsids, fields[0])
 		}
-		// Deduplicate and validate
-		seen := make(map[string]struct{})
-		out := make([]string, 0, len(rsids))
-		for _, r := range rsids {
-			if r == "" {
-				return nil, errors.New("empty rsid found in input")
-			}
-			if _, exists := seen[r]; !exists {
-				seen[r] = struct{}{}
-				out = append(out, r)
-			}
-		}
-		return out, nil
-	default:
-		return nil, errors.New("unsupported file extension")
 	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	for i := range rsids {
+		rsids[i] = strings.TrimSpace(rsids[i])
+		if strings.ContainsRune(rsids[i], '\x00') {
+			return nil, errors.New("malformed input: null byte found")
+		}
+	}
+	seen := make(map[string]struct{})
+	out := make([]string, 0, len(rsids))
+	for _, r := range rsids {
+		if r == "" {
+			return nil, errors.New("empty rsid found in input")
+		}
+		if _, exists := seen[r]; !exists {
+			seen[r] = struct{}{}
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func splitDelimited(line string, sep rune) []string {
+	return strings.Split(line, string(sep))
 }
 
 // splitCSV splits a CSV line on commas, handling simple cases (no quoted fields)

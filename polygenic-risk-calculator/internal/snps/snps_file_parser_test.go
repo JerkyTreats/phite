@@ -51,6 +51,106 @@ func TestParseSNPsFromFile_CSVOnePerLine(t *testing.T) {
 }
 
 func TestParseSNPsFromFile_CSVWithHeader(t *testing.T) {
+	t.Run("tsv single-column header", func(t *testing.T) {
+		dir := t.TempDir()
+		tsvContent := "rsid\nrs123\nrs456\nrs789\n"
+		path := writeTempFile(t, dir, "*.tsv", tsvContent)
+
+		rsids, err := ParseSNPsFromFile(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"rs123", "rs456", "rs789"}
+		if len(rsids) != len(want) {
+			t.Fatalf("expected %d rsids, got %d", len(want), len(rsids))
+		}
+		for i := range want {
+			if rsids[i] != want[i] {
+				t.Errorf("expected rsid[%d]=%q, got %q", i, want[i], rsids[i])
+			}
+		}
+	})
+
+	t.Run("tsv multi-column header, rsid middle", func(t *testing.T) {
+		dir := t.TempDir()
+		tsvContent := "effect\trsid\tpval\n0.12\trs123\t0.01\n0.08\trs456\t0.02\n"
+		path := writeTempFile(t, dir, "*.tsv", tsvContent)
+
+		rsids, err := ParseSNPsFromFile(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"rs123", "rs456"}
+		if len(rsids) != len(want) {
+			t.Fatalf("expected %d rsids, got %d", len(want), len(rsids))
+		}
+		for i := range want {
+			if rsids[i] != want[i] {
+				t.Errorf("expected rsid[%d]=%q, got %q", i, want[i], rsids[i])
+			}
+		}
+	})
+
+	t.Run("tsv multi-column header, rsid first", func(t *testing.T) {
+		dir := t.TempDir()
+		tsvContent := "rsid\teffect\tpval\nrs123\t0.12\t0.01\nrs456\t0.08\t0.02\n"
+		path := writeTempFile(t, dir, "*.tsv", tsvContent)
+
+		rsids, err := ParseSNPsFromFile(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"rs123", "rs456"}
+		if len(rsids) != len(want) {
+			t.Fatalf("expected %d rsids, got %d", len(want), len(rsids))
+		}
+		for i := range want {
+			if rsids[i] != want[i] {
+				t.Errorf("expected rsid[%d]=%q, got %q", i, want[i], rsids[i])
+			}
+		}
+	})
+
+	t.Run("tsv multi-column header, rsid last", func(t *testing.T) {
+		dir := t.TempDir()
+		tsvContent := "effect\tpval\trsid\n0.12\t0.01\trs123\n0.08\t0.02\trs456\n"
+		path := writeTempFile(t, dir, "*.tsv", tsvContent)
+
+		rsids, err := ParseSNPsFromFile(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"rs123", "rs456"}
+		if len(rsids) != len(want) {
+			t.Fatalf("expected %d rsids, got %d", len(want), len(rsids))
+		}
+		for i := range want {
+			if rsids[i] != want[i] {
+				t.Errorf("expected rsid[%d]=%q, got %q", i, want[i], rsids[i])
+			}
+		}
+	})
+
+	t.Run("tsv multi-column header, RSID uppercase", func(t *testing.T) {
+		dir := t.TempDir()
+		tsvContent := "EFFECT\tRSID\tPVAL\n0.12\trs123\t0.01\n0.08\trs456\t0.02\n"
+		path := writeTempFile(t, dir, "*.tsv", tsvContent)
+
+		rsids, err := ParseSNPsFromFile(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"rs123", "rs456"}
+		if len(rsids) != len(want) {
+			t.Fatalf("expected %d rsids, got %d", len(want), len(rsids))
+		}
+		for i := range want {
+			if rsids[i] != want[i] {
+				t.Errorf("expected rsid[%d]=%q, got %q", i, want[i], rsids[i])
+			}
+		}
+	})
+
 	t.Run("single-column header", func(t *testing.T) {
 		dir := t.TempDir()
 		csvContent := "rsid\nrs123\nrs456\nrs789\n"
@@ -151,25 +251,66 @@ func TestParseSNPsFromFile_CSVWithHeader(t *testing.T) {
 		}
 	})
 
-	dir := t.TempDir()
-	csvContent := "rsid\nrs123\nrs456\nrs789\n"
-	path := writeTempFile(t, dir, "*.csv", csvContent)
+	t.Run("multi-column header, RS ID with space and mixed case (csv)", func(t *testing.T) {
+		dir := t.TempDir()
+		csvContent := "EFFECT, RS ID ,PVAL\n0.12,rs123,0.01\n0.08,rs456,0.02\n"
+		path := writeTempFile(t, dir, "*.csv", csvContent)
 
-	rsids, err := ParseSNPsFromFile(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := []string{"rs123", "rs456", "rs789"}
-	if len(rsids) != len(want) {
-		t.Fatalf("expected %d rsids, got %d", len(want), len(rsids))
-	}
-	for i := range want {
-		if rsids[i] != want[i] {
-			t.Errorf("expected rsid[%d]=%q, got %q", i, want[i], rsids[i])
+		rsids, err := ParseSNPsFromFile(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-	}
-}
+		want := []string{"rs123", "rs456"}
+		if len(rsids) != len(want) {
+			t.Fatalf("expected %d rsids, got %d", len(want), len(rsids))
+		}
+		for i := range want {
+			if rsids[i] != want[i] {
+				t.Errorf("expected rsid[%d]=%q, got %q", i, want[i], rsids[i])
+			}
+		}
+	})
 
+	t.Run("multi-column header, RS ID with space and mixed case (tsv)", func(t *testing.T) {
+		dir := t.TempDir()
+		tsvContent := "Group\tGene\tRS ID\tEffect Allele\tYour Genotype\tNotes About Effect Allele\t0\nDiabetes\tMTNR1B\trs10830963\tG\tCC\tIncreased fasting glucose levels, increased risk of type 2 diabetes (2-fold) when eating late at night\n"
+		path := writeTempFile(t, dir, "*.tsv", tsvContent)
+
+		rsids, err := ParseSNPsFromFile(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"rs10830963"}
+		if len(rsids) != len(want) {
+			t.Fatalf("expected %d rsids, got %d", len(want), len(rsids))
+		}
+		for i := range want {
+			if rsids[i] != want[i] {
+				t.Errorf("expected rsid[%d]=%q, got %q", i, want[i], rsids[i])
+			}
+		}
+	})
+
+	t.Run("multi-column header, RS ID with space and mixed case (tsv)", func(t *testing.T) {
+		tsvContent := "EFFECT\t RS ID \tPVAL\n0.12\trs123\t0.01\n0.08\trs456\t0.02\n"
+		path := writeTempFile(t, t.TempDir(), "*.tsv", tsvContent)
+
+		rsids, err := ParseSNPsFromFile(path)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"rs123", "rs456"}
+		if len(rsids) != len(want) {
+			t.Fatalf("expected %d rsids, got %d", len(want), len(rsids))
+		}
+		for i := range want {
+			if rsids[i] != want[i] {
+				t.Errorf("expected rsid[%d]=%q, got %q", i, want[i], rsids[i])
+			}
+		}
+	})
+
+}
 func TestParseSNPsFromFile_IgnoreBlankLines(t *testing.T) {
 	tests := []struct {
 		name    string
