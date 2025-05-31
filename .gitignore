@@ -2,7 +2,7 @@
 
 gwas/data/
 
-# /cmd/risk-calculator/risk-calculator
+polygenic-risk-calculator/cmd/risk-calculator/risk-calculator
 
 # Binaries for programs and plugins
 *.exe
