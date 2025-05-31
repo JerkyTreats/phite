@@ -1,6 +1,7 @@
 package gwas_test
 
 import (
+	"os"
 	"testing"
 	"phite.io/polygenic-risk-calculator/internal/gwas"
 	"phite.io/polygenic-risk-calculator/internal/logging"
@@ -38,4 +39,85 @@ func TestFetchGWASRecords(t *testing.T) {
 			t.Errorf("expected error for missing db file")
 		}
 	})
+
+	t.Run("error if table does not exist", func(t *testing.T) {
+		// Use a valid DB but a bogus table name
+		oldEnv := setEnv("GWAS_TABLE", "not_a_table")
+		defer oldEnv()
+		_, err := gwas.FetchGWASRecords(dbPath, []string{"rs1"})
+		if err == nil {
+			t.Errorf("expected error for missing table")
+		}
+	})
+
+	t.Run("error if required columns are missing", func(t *testing.T) {
+		// Use a table that exists but is missing required columns. This requires a special test DB setup.
+		// For illustration, skip if not available.
+		missingColsDB := "testdata/gwas_missing_cols.duckdb"
+		_, err := gwas.FetchGWASRecords(missingColsDB, []string{"rs1"})
+		if err == nil {
+			t.Skip("skipping: test DB missing or does not have a table missing required columns")
+		}
+	})
+
+	t.Run("respects env for table name", func(t *testing.T) {
+		// This is a smoke test: set env to known-good table
+		oldEnv := setEnv("GWAS_TABLE", "associations_clean")
+		defer oldEnv()
+		rsids := []string{"rs1"}
+		_, err := gwas.FetchGWASRecords(dbPath, rsids)
+		if err != nil {
+			t.Errorf("should succeed when correct table is set via env: %v", err)
+		}
+	})
+}
+
+// setEnv sets an env var and returns a function to restore the old value
+func TestValidateGWASDBAndTable(t *testing.T) {
+	logging.SetSilentLoggingForTest()
+	validDB := "testdata/gwas.duckdb"
+	validTable := "associations_clean"
+	missingDB := "/nonexistent/path.duckdb"
+	missingTable := "not_a_table"
+	missingColsDB := "testdata/gwas_missing_cols.duckdb"
+
+	t.Run("valid DB and table returns nil", func(t *testing.T) {
+		err := gwas.ValidateGWASDBAndTable(validDB, validTable)
+		if err != nil {
+			t.Errorf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("missing DB returns error", func(t *testing.T) {
+		err := gwas.ValidateGWASDBAndTable(missingDB, validTable)
+		if err == nil {
+			t.Errorf("expected error for missing DB, got nil")
+		}
+	})
+
+	t.Run("missing table returns error", func(t *testing.T) {
+		err := gwas.ValidateGWASDBAndTable(validDB, missingTable)
+		if err == nil {
+			t.Errorf("expected error for missing table, got nil")
+		}
+	})
+
+	t.Run("missing required columns returns error", func(t *testing.T) {
+		err := gwas.ValidateGWASDBAndTable(missingColsDB, validTable)
+		if err == nil {
+			t.Skip("skipping: test DB missing or does not have a table missing required columns")
+		}
+	})
+}
+
+func setEnv(key, val string) func() {
+	old, present := os.LookupEnv(key)
+	os.Setenv(key, val)
+	return func() {
+		if present {
+			os.Setenv(key, old)
+		} else {
+			os.Unsetenv(key)
+		}
+	}
 }

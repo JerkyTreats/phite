@@ -7,15 +7,17 @@ Provide an interface for efficiently loading GWAS association records from a Duc
 
 ## Responsibilities
 - Use DuckDB Shared Utilities for connection/session management and schema validation.
-- Connect to the DuckDB database at the specified path.
-- Query for GWAS association records for the requested SNPs.
+- Connect to the DuckDB database at the configured path.
+- Query the configured table for GWAS association records for the requested SNPs.
+- Validate that the table exists and contains required columns (`rsid`, `risk_allele`, `beta`, `trait`) before querying.
 - Return records as Go structs for downstream use.
-- Handle errors gracefully and provide clear error messages.
+- Handle errors gracefully and provide clear, actionable error messages (including if the table or columns are missing).
 - Support extensibility for additional GWAS fields if needed.
 - Support efficient batch queries for large SNP lists.
 
 ## Inputs
-- DuckDB file path (from CLI argument `--gwas-db`)
+- DuckDB file path (configurable: CLI argument `--gwas-db`, env `GWAS_DUCKDB`, config key `gwas_db_path`, defaults to `gwas/gwas.duckdb`)
+- Table name (configurable: env `GWAS_TABLE`, config key `gwas_table`, defaults to `associations_clean`)
 - List of SNP rsids to fetch
 
 ## Outputs
@@ -31,6 +33,7 @@ Provide an interface for efficiently loading GWAS association records from a Duc
 - Fails gracefully with clear errors on missing or malformed DuckDB files.
 - Returns correct Go structs for downstream use.
 - Efficiently handles large SNP lists (batch queries).
+- Returns clear, actionable errors if the configured table does not exist or is missing required columns.
 
 ## Example Usage
 

@@ -18,9 +18,27 @@ type GWASDataFetcherOutput struct {
 // FetchAndAnnotateGWAS fetches GWAS associations for validated SNPs and annotates them with risk allele, effect size, and computed dosage.
 func FetchAndAnnotateGWAS(input GWASDataFetcherInput) GWASDataFetcherOutput {
 	logging.Info("Starting GWAS annotation for %d SNPs", len(input.ValidatedSNPs))
+	// TODO(phite-debug): Remove diagnostic logging after GWAS annotation issue is resolved
+	if len(input.ValidatedSNPs) > 0 {
+		max := 5
+		if len(input.ValidatedSNPs) < 5 {
+			max = len(input.ValidatedSNPs)
+		}
+		logging.Debug("First %d ValidatedSNPs: %+v", max, input.ValidatedSNPs[:max])
+	}
+	// TODO(phite-debug): Remove diagnostic logging after GWAS annotation issue is resolved
+	if len(input.AssociationsClean) > 0 {
+		max := 5
+		if len(input.AssociationsClean) < 5 {
+			max = len(input.AssociationsClean)
+		}
+		logging.Debug("First %d GWAS associations: %+v", max, input.AssociationsClean[:max])
+	}
 	var result GWASDataFetcherOutput
 	for _, snp := range input.ValidatedSNPs {
+		// TODO(phite-debug): Remove diagnostic logging after GWAS annotation issue is resolved
 		if !snp.FoundInGWAS {
+			logging.Debug("Skipping SNP %s: FoundInGWAS == false", snp.RSID)
 			continue // skip SNPs not found in GWAS
 		}
 		found := false
@@ -36,6 +54,8 @@ func FetchAndAnnotateGWAS(input GWASDataFetcherInput) GWASDataFetcherOutput {
 					Dosage:     dosage,
 					Trait:      assoc.Trait,
 				}
+					// TODO(phite-debug): Remove diagnostic logging after GWAS annotation issue is resolved
+				logging.Debug("Annotated SNP: %+v from assoc %+v", annotated, assoc)
 				result.AnnotatedSNPs = append(result.AnnotatedSNPs, annotated)
 				result.GWASRecords = append(result.GWASRecords, assoc)
 			}

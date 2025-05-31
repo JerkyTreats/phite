@@ -49,3 +49,15 @@ func LoadReferenceStatsFromDuckDB(dbPath, ancestry, trait, model string) (*Refer
 	logging.Info("Loaded reference stats: ancestry=%s, trait=%s, model=%s", stats.Ancestry, stats.Trait, stats.Model)
 	return &stats, nil
 }
+
+// LoadDefaultReferenceStats loads reference stats for the default ancestry, trait, and model.
+// Defaults: ancestry="EUR", trait="height", model="v1"
+func LoadDefaultReferenceStats(dbPath string) (*ReferenceStats, error) {
+	const (
+		defaultAncestry = "EUR"
+		defaultTrait    = "height"
+		defaultModel    = "v1"
+	)
+	return LoadReferenceStatsFromDuckDB(dbPath, defaultAncestry, defaultTrait, defaultModel)
+}
+

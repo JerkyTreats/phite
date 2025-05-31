@@ -1,20 +1,19 @@
 package main
 
 import (
-	"flag"
 	"fmt"
-	"phite.io/polygenic-risk-calculator/internal/logging"
 	"io"
 	"os"
-	"strings"
 
+	"phite.io/polygenic-risk-calculator/internal/logging"
+
+	"phite.io/polygenic-risk-calculator/internal/cli"
 	"phite.io/polygenic-risk-calculator/internal/genotype"
 	"phite.io/polygenic-risk-calculator/internal/gwas"
 	"phite.io/polygenic-risk-calculator/internal/model"
 	"phite.io/polygenic-risk-calculator/internal/output"
 	"phite.io/polygenic-risk-calculator/internal/prs"
 	"phite.io/polygenic-risk-calculator/internal/reference"
-	"phite.io/polygenic-risk-calculator/internal/snps"
 )
 
 // RunCLI parses arguments and runs the entrypoint logic. Returns exit code.
@@ -29,95 +28,28 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 	defer func() {
 		logging.Info("PHITE CLI exiting")
 	}()
-	fs := flag.NewFlagSet("polygenic-risk-calculator", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	genotypeFile := fs.String("genotype-file", "", "Path to user genotype file (required)")
-	snpsFlag := fs.String("snps", "", "Comma-separated list of SNP rsids (required unless --snps-file is set)")
-	snpsFileFlag := fs.String("snps-file", "", "Path to file containing SNP rsids (JSON or CSV, mutually exclusive with --snps)")
-	outputPath := fs.String("output", "", "Output file path (optional)")
-	format := fs.String("format", "json", "Output format: json or csv (optional)")
 
-	logging.Info("Parsing CLI flags")
-	if err := fs.Parse(args); err != nil {
-		logging.Error("flag parse error: %v", err)
-		return 2 // flag parse error
-	}
-
-	// Enforce mutual exclusivity and required flags
-	if *snpsFlag != "" && *snpsFileFlag != "" {
-		logging.Error("--snps and --snps-file are mutually exclusive. Provide only one.")
-		fs.Usage()
-		return 1
-	}
-	if *snpsFlag == "" && *snpsFileFlag == "" {
-		logging.Error("one of --snps or --snps-file is required.")
-		fs.Usage()
-		return 1
-	}
-	if *genotypeFile == "" {
-		logging.Error("--genotype-file is required.")
-		fs.Usage()
-		return 1
-	}
-
-	// Check if genotype file exists
-	if _, err := os.Stat(*genotypeFile); err != nil {
-		logAndStderr(stderr, "genotype file not found: %s", *genotypeFile)
-		return 1
-	}
-
-	// Parse list of SNPs
-	var rsids []string
-	if *snpsFlag != "" {
-		rsids = strings.Split(*snpsFlag, ",")
-		for i := range rsids {
-			rsids[i] = strings.TrimSpace(rsids[i])
-		}
-		// Deduplicate and validate
-		seen := make(map[string]struct{})
-		out := make([]string, 0, len(rsids))
-		for _, r := range rsids {
-			if r == "" {
-				logging.Error("empty rsid in --snps list.")
-				return 1
-			}
-			if _, exists := seen[r]; !exists {
-				seen[r] = struct{}{}
-				out = append(out, r)
-			}
-		}
-		rsids = out
-	} else {
-		var err error
-		rsids, err = snps.ParseSNPsFromFile(*snpsFileFlag)
-		if err != nil {
-			logging.Error("failed to parse SNPs from file: %v", err)
-			return 1
-		}
-		logging.Info("Parsed %d SNP rsids from file %s", len(rsids), *snpsFileFlag)
-	}
-	if len(rsids) == 0 {
-		logging.Error("no SNPs provided.")
-		return 1
-	}
-
-	// Load GWAS associations from DuckDB
-	gwasDB := os.Getenv("GWAS_DUCKDB")
-	if gwasDB == "" {
-		gwasDB = "internal/gwas/testdata/gwas.duckdb" // fallback for test/dev
-	}
-	logging.Info("Loading GWAS records from %s", gwasDB)
-	gwasRecords, err := gwas.FetchGWASRecords(gwasDB, rsids)
+	opts, err := cli.ParseOptions(args)
 	if err != nil {
-		logging.Error("failed to load GWAS records: %v", err)
+		logging.Error("parameter error: %v", err)
+		cli.PrintHelp()
+		return 1
+	}
+
+	// Use canonical, validated SNP list from opts
+	rsids := opts.SNPs
+
+	gwasRecords, err := gwas.FetchGWASRecordsWithTable(opts.GWASDB, opts.GWASTable, rsids)
+	if err != nil {
+		logAndStderr(stderr, "Failed to load GWAS records: %v", err)
 		return 1
 	}
 	logging.Info("Loaded %d GWAS records", len(gwasRecords))
 
 	// Parse user genotype file
-	logging.Info("Parsing genotype file: %s", *genotypeFile)
+	logging.Info("Parsing genotype file: %s", opts.GenotypeFile)
 	genoOut, err := genotype.ParseGenotypeData(genotype.ParseGenotypeDataInput{
-		GenotypeFilePath: *genotypeFile,
+		GenotypeFilePath: opts.GenotypeFile,
 		RequestedRSIDs:   rsids,
 		GWASData:         gwasRecords,
 	})
@@ -131,7 +63,7 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 	logging.Info("Annotating SNPs with GWAS associations")
 	gwasOutput := gwas.FetchAndAnnotateGWAS(gwas.GWASDataFetcherInput{
 		ValidatedSNPs:     genoOut.ValidatedSNPs,
-		AssociationsClean: mapToGWASList(gwasRecords),
+		AssociationsClean: gwas.MapToGWASList(gwasRecords),
 	})
 	logging.Info("Annotated %d SNPs", len(gwasOutput.AnnotatedSNPs))
 
@@ -141,12 +73,11 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 	logging.Info("PRS calculation complete")
 
 	// Load reference stats (optional)
-	refDB := os.Getenv("REFERENCE_DUCKDB")
+	refDB := opts.ReferenceDB
 	var refStats *model.ReferenceStats
 	if refDB != "" {
 		logging.Info("Loading reference stats from %s", refDB)
-		// For demo: use EUR/height/v1 as default; in real CLI, expose as flags
-		refStatsRaw, _ := reference.LoadReferenceStatsFromDuckDB(refDB, "EUR", "height", "v1")
+		refStatsRaw, _ := reference.LoadDefaultReferenceStats(refDB)
 		if refStatsRaw != nil {
 			refStats = &model.ReferenceStats{
 				Mean:     refStatsRaw.Mean,
@@ -176,8 +107,8 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 	logging.Info("Generated %d trait summaries", len(summaries))
 
 	// Output results
-	logging.Info("Formatting output: format=%s, outputPath=%s", *format, *outputPath)
-	err = output.FormatOutput(norm, prsResult, summaries, genoOut.SNPsMissing, *format, *outputPath, stdout)
+	logging.Info("Formatting output: format=%s, outputPath=%s", opts.Format, opts.Output)
+	err = output.FormatOutput(norm, prsResult, summaries, genoOut.SNPsMissing, opts.Format, opts.Output, stdout)
 	if err != nil {
 		logging.Error("failed to format output: %v", err)
 		return 1
@@ -187,17 +118,6 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// mapToGWASList converts a map of GWASSNPRecord to a slice for annotation
-func mapToGWASList(m map[string]model.GWASSNPRecord) []model.GWASSNPRecord {
-	if m == nil {
-		return nil
-	}
-	records := make([]model.GWASSNPRecord, 0, len(m))
-	for _, rec := range m {
-		records = append(records, rec)
-	}
-	return records
-}
 
 func main() {
 	logging.Info("PHITE CLI invoked")

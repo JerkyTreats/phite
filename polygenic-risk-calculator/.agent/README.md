@@ -41,6 +41,27 @@ Welcome to the PHITE polygenic risk calculator project. This document provides c
   - Use context.Context where appropriate for cancellation and deadlines.
   - Validate all external input and handle malformed data safely.
 
+## External Data & Parameter Loading
+
+See also: [Brief: Centralized Configuration System](./brief_config_system.md)
+
+
+All required external data (such as files, databases, or key parameters) must be configurable via CLI flags. CLI flags should be the primary method for users to specify required inputs. Configuration files and environment variables may be used as fallbacks or for advanced/automated deployments, but must not be the only way to set required data.
+
+**Pattern:**
+- If a parameter is required for successful operation (e.g., input file, GWAS DB path), it MUST be settable via a CLI flag.
+- CLI flags take precedence over config and environment variables.
+- Config files and environment variables are for defaults, automation, and advanced use.
+- Hardcoded defaults are allowed only as a last resort for developer convenience.
+- The CLI should error early and clearly if required data is missing.
+
+**Example:**
+```go
+// CLI flag (required): --gwas-db
+// Config key: gwas_db_path
+// Env var: GWAS_DUCKDB
+```
+
 ## Logging Standards
 
 All logging in PHITE must use the centralized logger (`internal/logging`). Do not use `fmt.Println` or the standard library `log` for application output.

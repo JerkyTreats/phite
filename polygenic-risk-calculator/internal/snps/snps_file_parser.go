@@ -57,23 +57,12 @@ func parseJSON(r io.Reader) ([]string, error) {
 		logging.Error("malformed JSON: %v", err)
 		return nil, errors.New("malformed JSON: " + err.Error())
 	}
-	for i := range rsids {
-		rsids[i] = strings.TrimSpace(rsids[i])
-		if rsids[i] == "" {
-			logging.Error("empty rsid found in JSON input")
-			return nil, errors.New("empty rsid found in input")
-		}
+	rsids, err := CleanAndValidateSNPs(rsids)
+	if err != nil {
+		logging.Error("invalid rsids in JSON input: %v", err)
+		return nil, err
 	}
-	// Deduplicate
-	seen := make(map[string]struct{})
-	out := make([]string, 0, len(rsids))
-	for _, r := range rsids {
-		if _, exists := seen[r]; !exists {
-			seen[r] = struct{}{}
-			out = append(out, r)
-		}
-	}
-	return out, nil
+	return rsids, nil
 }
 
 func parseCSV(r io.Reader) ([]string, error) {
@@ -132,25 +121,17 @@ func parseDelimited(r io.Reader, sep rune) ([]string, error) {
 		return nil, err
 	}
 	for i := range rsids {
-		rsids[i] = strings.TrimSpace(rsids[i])
 		if strings.ContainsRune(rsids[i], '\x00') {
 			logging.Error("malformed input: null byte found in SNP file")
 			return nil, errors.New("malformed input: null byte found")
 		}
 	}
-	seen := make(map[string]struct{})
-	out := make([]string, 0, len(rsids))
-	for _, r := range rsids {
-		if r == "" {
-			logging.Error("empty rsid found in delimited SNP file input")
-			return nil, errors.New("empty rsid found in input")
-		}
-		if _, exists := seen[r]; !exists {
-			seen[r] = struct{}{}
-			out = append(out, r)
-		}
+	rsids, err := CleanAndValidateSNPs(rsids)
+	if err != nil {
+		logging.Error("invalid rsids in delimited SNP file input: %v", err)
+		return nil, err
 	}
-	return out, nil
+	return rsids, nil
 }
 
 func splitDelimited(line string, sep rune) []string {
