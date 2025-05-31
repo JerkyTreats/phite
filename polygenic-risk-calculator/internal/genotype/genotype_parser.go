@@ -3,9 +3,10 @@ package genotype
 import (
 	"bufio"
 	"errors"
-	"phite.io/polygenic-risk-calculator/internal/logging"
 	"os"
 	"strings"
+
+	"phite.io/polygenic-risk-calculator/internal/logging"
 
 	"phite.io/polygenic-risk-calculator/internal/model"
 )
@@ -100,7 +101,7 @@ func ParseGenotypeData(input ParseGenotypeDataInput) (ParseGenotypeDataOutput, e
 			}
 			output.ValidatedSNPs = append(output.ValidatedSNPs, model.ValidatedSNP{RSID: rsid, Genotype: geno, FoundInGWAS: foundInGWAS})
 		} else {
-			logging.Error("requested SNP %s not found or invalid in genotype file", rsid)
+			logging.Info("requested SNP %s not found or invalid in genotype file", rsid)
 			output.SNPsMissing = append(output.SNPsMissing, rsid)
 		}
 	}
