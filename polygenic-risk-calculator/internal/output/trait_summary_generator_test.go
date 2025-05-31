@@ -2,15 +2,16 @@ package output
 
 import (
 	"testing"
-	"phite.io/polygenic-risk-calculator/prs"
+
+	"phite.io/polygenic-risk-calculator/internal/prs"
 )
 
 func TestGenerateTraitSummaries(t *testing.T) {
 	tests := []struct {
-		name string
+		name      string
 		annotated []prs.AnnotatedSNP
-		norm prs.NormalizedPRS
-		want []TraitSummary
+		norm      prs.NormalizedPRS
+		want      []TraitSummary
 	}{
 		{
 			name: "single trait, high risk",
@@ -39,10 +40,10 @@ func TestGenerateTraitSummaries(t *testing.T) {
 			want: []TraitSummary{{Trait: "unknown", NumRiskAlleles: 1, EffectWeightedContribution: 0.1, RiskLevel: "low"}},
 		},
 		{
-			name: "empty input",
+			name:      "empty input",
 			annotated: nil,
-			norm: prs.NormalizedPRS{RawScore: 0, ZScore: 0, Percentile: 0},
-			want: nil,
+			norm:      prs.NormalizedPRS{RawScore: 0, ZScore: 0, Percentile: 0},
+			want:      nil,
 		},
 	}
 

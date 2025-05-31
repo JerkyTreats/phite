@@ -6,9 +6,9 @@ Welcome to the PHITE polygenic risk calculator project. This document provides c
 
 | Brief | Status |
 |-------|--------|
-| DuckDB Shared Utilities           | To Do      |
+| DuckDB Shared Utilities           | Complete   |
 | Entrypoint                        | In Progress|
-| Genotype File Parser              | To Do      |
+| Genotype File Parser              | Complete   |
 | GWAS Data Fetcher                 | Complete   |
 | GWAS DuckDB Loader                | To Do      |
 | Output Formatter                  | Complete   |

@@ -4,11 +4,11 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"phite.io/polygenic-risk-calculator/prs"
+
+	"phite.io/polygenic-risk-calculator/internal/prs"
 )
 
 // prs.NormalizedPRS and PRSResult are imported from prs package.
-
 
 func TestOutputFormatter_JSON_ToStdout(t *testing.T) {
 	norm := prs.NormalizedPRS{RawScore: 1.1, ZScore: 0.5, Percentile: 70.0}

@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"phite.io/polygenic-risk-calculator/prs"
+	"phite.io/polygenic-risk-calculator/internal/prs"
 )
 
 // TraitSummary represents a summary for a trait (from data_model.md)
