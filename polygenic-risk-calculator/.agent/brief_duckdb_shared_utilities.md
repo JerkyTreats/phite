@@ -34,6 +34,7 @@ Establish a set of shared utilities, patterns, and standards for all agents/comp
 - Logging and metrics output (if enabled)
 
 ## Example Usage
+
 ```go
 // Open connection
 conn, err := dbutil.OpenDuckDB(path)

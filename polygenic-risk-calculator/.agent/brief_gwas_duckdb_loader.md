@@ -2,7 +2,6 @@
 
 > **Note:** The DuckDB database used by this loader is provided by the external shared GWAS database (`../gwas/gwas.duckdb`), which is managed separately. For data engineering and schema creation, see briefs in `gwas/.agent/`.
 
-
 ## Purpose
 Provide an interface for efficiently loading GWAS association records from a DuckDB database for use in the polygenic risk calculator pipeline.
 
@@ -34,6 +33,7 @@ Provide an interface for efficiently loading GWAS association records from a Duc
 - Efficiently handles large SNP lists (batch queries).
 
 ## Example Usage
+
 ```go
 records, err := gwasduckdb.FetchGWASRecords(dbPath, rsidList)
 if err != nil {
