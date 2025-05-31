@@ -13,6 +13,7 @@ import (
 	"phite.io/polygenic-risk-calculator/internal/reference"
 	"phite.io/polygenic-risk-calculator/internal/prs"
 	"phite.io/polygenic-risk-calculator/internal/output"
+	"phite.io/polygenic-risk-calculator/internal/snps"
 )
 
 
@@ -21,7 +22,8 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("polygenic-risk-calculator", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	genotypeFile := fs.String("genotype-file", "", "Path to user genotype file (required)")
-	snps := fs.String("snps", "", "Comma-separated list of SNP rsids (required)")
+	snpsFlag := fs.String("snps", "", "Comma-separated list of SNP rsids (required unless --snps-file is set)")
+	snpsFileFlag := fs.String("snps-file", "", "Path to file containing SNP rsids (JSON or CSV, mutually exclusive with --snps)")
 	outputPath := fs.String("output", "", "Output file path (optional)")
 	format := fs.String("format", "json", "Output format: json or csv (optional)")
 
@@ -29,8 +31,19 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 		return 2 // flag parse error
 	}
 
-	if *genotypeFile == "" || *snps == "" {
-		fmt.Fprintln(stderr, "Error: --genotype-file and --snps are required.")
+	// Enforce mutual exclusivity and required flags
+	if *snpsFlag != "" && *snpsFileFlag != "" {
+		fmt.Fprintln(stderr, "Error: --snps and --snps-file are mutually exclusive. Provide only one.")
+		fs.Usage()
+		return 1
+	}
+	if *snpsFlag == "" && *snpsFileFlag == "" {
+		fmt.Fprintln(stderr, "Error: one of --snps or --snps-file is required.")
+		fs.Usage()
+		return 1
+	}
+	if *genotypeFile == "" {
+		fmt.Fprintln(stderr, "Error: --genotype-file is required.")
 		fs.Usage()
 		return 1
 	}
@@ -41,10 +54,34 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-		// Parse list of SNPs
-	rsids := strings.Split(*snps, ",")
-	for i := range rsids {
-		rsids[i] = strings.TrimSpace(rsids[i])
+	// Parse list of SNPs
+	var rsids []string
+	if *snpsFlag != "" {
+		rsids = strings.Split(*snpsFlag, ",")
+		for i := range rsids {
+			rsids[i] = strings.TrimSpace(rsids[i])
+		}
+		// Deduplicate and validate
+		seen := make(map[string]struct{})
+		out := make([]string, 0, len(rsids))
+		for _, r := range rsids {
+			if r == "" {
+				fmt.Fprintln(stderr, "Error: empty rsid in --snps list.")
+				return 1
+			}
+			if _, exists := seen[r]; !exists {
+				seen[r] = struct{}{}
+				out = append(out, r)
+			}
+		}
+		rsids = out
+	} else {
+		var err error
+		rsids, err = snps.ParseSNPsFromFile(*snpsFileFlag)
+		if err != nil {
+			fmt.Fprintf(stderr, "Error: failed to parse SNPs from file: %v\n", err)
+			return 1
+		}
 	}
 	if len(rsids) == 0 {
 		fmt.Fprintln(stderr, "Error: no SNPs provided.")
