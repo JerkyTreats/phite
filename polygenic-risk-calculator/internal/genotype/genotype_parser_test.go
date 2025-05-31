@@ -7,7 +7,7 @@ import (
 	"sort"
 	"testing"
 
-	"phite.io/polygenic-risk-calculator/genotype"
+	"phite.io/polygenic-risk-calculator/internal/genotype"
 )
 
 // Helper function to sort slices in ParseGenotypeDataOutput for consistent comparison

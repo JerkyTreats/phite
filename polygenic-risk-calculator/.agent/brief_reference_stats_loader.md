@@ -2,7 +2,6 @@
 
 > **Note:** The DuckDB database used by this loader is provided by the external shared GWAS database (`../gwas/gwas.duckdb`), which is managed separately. For data engineering and schema creation, see briefs in `gwas/.agent/`.
 
-
 ## Purpose
 Provide a mechanism for loading population-level reference statistics (mean, std, min, max) from a DuckDB database used for normalizing polygenic risk scores. Reference data is **optional**—if not provided, only the raw PRS will be output.
 
