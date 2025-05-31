@@ -5,13 +5,14 @@ import (
 	"strings"
 
 	"phite.io/polygenic-risk-calculator/internal/dbutil"
+	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
 // FetchGWASRecords loads GWAS SNP records for the given rsids from DuckDB.
-// Returns a map from rsid to GWASSNPRecord.
-func FetchGWASRecords(dbPath string, rsids []string) (map[string]GWASSNPRecord, error) {
+// Returns a map from rsid to model.GWASSNPRecord.
+func FetchGWASRecords(dbPath string, rsids []string) (map[string]model.GWASSNPRecord, error) {
 	if len(rsids) == 0 {
-		return map[string]GWASSNPRecord{}, nil
+		return map[string]model.GWASSNPRecord{}, nil
 	}
 	db, err := dbutil.OpenDuckDB(dbPath)
 	if err != nil {
@@ -40,9 +41,9 @@ func FetchGWASRecords(dbPath string, rsids []string) (map[string]GWASSNPRecord, 
 	}
 	defer rows.Close()
 
-	records := make(map[string]GWASSNPRecord)
+	var records = make(map[string]model.GWASSNPRecord)
 	for rows.Next() {
-		var rec GWASSNPRecord
+		var rec model.GWASSNPRecord
 		if err := rows.Scan(&rec.RSID, &rec.RiskAllele, &rec.Beta, &rec.Trait); err != nil {
 			return nil, fmt.Errorf("row scan failed: %w", err)
 		}

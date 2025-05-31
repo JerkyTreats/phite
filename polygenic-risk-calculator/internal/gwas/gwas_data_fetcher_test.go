@@ -2,22 +2,23 @@ package gwas
 
 import (
 	"testing"
+	"phite.io/polygenic-risk-calculator/internal/model"
 	"reflect"
 )
 
 
 func TestFetchAndAnnotateGWAS_BasicAnnotation(t *testing.T) {
 	input := GWASDataFetcherInput{
-		ValidatedSNPs: []ValidatedSNP{
+		ValidatedSNPs: []model.ValidatedSNP{
 			{RSID: "rs1", Genotype: "AA", FoundInGWAS: true},
 			{RSID: "rs2", Genotype: "AG", FoundInGWAS: true},
 		},
-		AssociationsClean: []GWASSNPRecord{
+		AssociationsClean: []model.GWASSNPRecord{
 			{RSID: "rs1", RiskAllele: "A", Beta: 0.2, Trait: "height"},
 			{RSID: "rs2", RiskAllele: "G", Beta: -0.1, Trait: "height"},
 		},
 	}
-	want := []AnnotatedSNP{
+	want := []model.AnnotatedSNP{
 		{RSID: "rs1", Genotype: "AA", RiskAllele: "A", Beta: 0.2, Dosage: 2, Trait: "height"},
 		{RSID: "rs2", Genotype: "AG", RiskAllele: "G", Beta: -0.1, Dosage: 1, Trait: "height"},
 	}
@@ -29,10 +30,10 @@ func TestFetchAndAnnotateGWAS_BasicAnnotation(t *testing.T) {
 
 func TestFetchAndAnnotateGWAS_MissingGWAS(t *testing.T) {
 	input := GWASDataFetcherInput{
-		ValidatedSNPs: []ValidatedSNP{
+		ValidatedSNPs: []model.ValidatedSNP{
 			{RSID: "rs3", Genotype: "TT", FoundInGWAS: false},
 		},
-		AssociationsClean: []GWASSNPRecord{},
+		AssociationsClean: []model.GWASSNPRecord{},
 	}
 	out := FetchAndAnnotateGWAS(input)
 	if len(out.AnnotatedSNPs) != 0 {
@@ -42,10 +43,10 @@ func TestFetchAndAnnotateGWAS_MissingGWAS(t *testing.T) {
 
 func TestFetchAndAnnotateGWAS_MultipleAssociations(t *testing.T) {
 	input := GWASDataFetcherInput{
-		ValidatedSNPs: []ValidatedSNP{
+		ValidatedSNPs: []model.ValidatedSNP{
 			{RSID: "rs4", Genotype: "CC", FoundInGWAS: true},
 		},
-		AssociationsClean: []GWASSNPRecord{
+		AssociationsClean: []model.GWASSNPRecord{
 			{RSID: "rs4", RiskAllele: "C", Beta: 0.3, Trait: "BMI"},
 			{RSID: "rs4", RiskAllele: "C", Beta: 0.2, Trait: "height"},
 		},
@@ -58,10 +59,10 @@ func TestFetchAndAnnotateGWAS_MultipleAssociations(t *testing.T) {
 
 func TestFetchAndAnnotateGWAS_AmbiguousGenotype(t *testing.T) {
 	input := GWASDataFetcherInput{
-		ValidatedSNPs: []ValidatedSNP{
+		ValidatedSNPs: []model.ValidatedSNP{
 			{RSID: "rs5", Genotype: "NN", FoundInGWAS: true},
 		},
-		AssociationsClean: []GWASSNPRecord{
+		AssociationsClean: []model.GWASSNPRecord{
 			{RSID: "rs5", RiskAllele: "N", Beta: 0.1, Trait: "height"},
 		},
 	}

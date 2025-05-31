@@ -7,12 +7,14 @@ import (
 	"os"
 	"strings"
 
+	"phite.io/polygenic-risk-calculator/internal/model"
 	"phite.io/polygenic-risk-calculator/internal/genotype"
 	"phite.io/polygenic-risk-calculator/internal/gwas"
 	"phite.io/polygenic-risk-calculator/internal/reference"
 	"phite.io/polygenic-risk-calculator/internal/prs"
 	"phite.io/polygenic-risk-calculator/internal/output"
 )
+
 
 // RunCLI parses arguments and runs the entrypoint logic. Returns exit code.
 func RunCLI(args []string, stdout, stderr io.Writer) int {
@@ -64,7 +66,7 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 	genoOut, err := genotype.ParseGenotypeData(genotype.ParseGenotypeDataInput{
 		GenotypeFilePath: *genotypeFile,
 		RequestedRSIDs:   rsids,
-		GWASData:         convertGWASMapToGenotype(gwasRecords),
+		GWASData:         gwasRecords,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: failed to parse genotype file: %v\n", err)
@@ -73,34 +75,39 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 
 	// Annotate SNPs
 	gwasOutput := gwas.FetchAndAnnotateGWAS(gwas.GWASDataFetcherInput{
-		ValidatedSNPs:     convertValidatedSNPsToGWAS(genoOut.ValidatedSNPs),
+		ValidatedSNPs:     genoOut.ValidatedSNPs,
 		AssociationsClean: mapToGWASList(gwasRecords),
 	})
 
 	// Calculate PRS
-	prsResult := prs.CalculatePRS(convertAnnotatedSNPsToPRS(gwasOutput.AnnotatedSNPs))
+	prsResult := prs.CalculatePRS(gwasOutput.AnnotatedSNPs)
 
 	// Load reference stats (optional)
 	refDB := os.Getenv("REFERENCE_DUCKDB")
-	var refStats *reference.ReferenceStats
+	var refStats *model.ReferenceStats
 	if refDB != "" {
 		// For demo: use EUR/height/v1 as default; in real CLI, expose as flags
-		refStats, _ = reference.LoadReferenceStatsFromDuckDB(refDB, "EUR", "height", "v1")
+		refStatsRaw, _ := reference.LoadReferenceStatsFromDuckDB(refDB, "EUR", "height", "v1")
+		if refStatsRaw != nil {
+			refStats = &model.ReferenceStats{
+				Mean:     refStatsRaw.Mean,
+				Std:      refStatsRaw.Std,
+				Min:      refStatsRaw.Min,
+				Max:      refStatsRaw.Max,
+				Ancestry: refStatsRaw.Ancestry,
+				Trait:    refStatsRaw.Trait,
+				Model:    refStatsRaw.Model,
+			}
+		}
 	}
 
 	var norm prs.NormalizedPRS
 	if refStats != nil {
-		ref := convertReferenceStatsToPRS(*refStats).(struct {
-			Mean float64
-			Std  float64
-			Min  float64
-			Max  float64
-		})
-		norm, _ = prs.NormalizePRS(prsResult, ref)
+		norm, _ = prs.NormalizePRS(prsResult, *refStats)
 	}
 
 	// Generate trait summaries
-	summaries := output.GenerateTraitSummaries(convertAnnotatedSNPsToPRS(gwasOutput.AnnotatedSNPs), norm)
+	summaries := output.GenerateTraitSummaries(gwasOutput.AnnotatedSNPs, norm)
 
 	// Output results
 	err = output.FormatOutput(norm, prsResult, summaries, genoOut.SNPsMissing, *format, *outputPath, stdout)
@@ -113,73 +120,18 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 }
 
 // mapToGWASList converts a map of GWASSNPRecord to a slice for annotation
-func mapToGWASList(m map[string]gwas.GWASSNPRecord) []gwas.GWASSNPRecord {
+func mapToGWASList(m map[string]model.GWASSNPRecord) []model.GWASSNPRecord {
 	if m == nil {
 		return nil
 	}
-	records := make([]gwas.GWASSNPRecord, 0, len(m))
+	records := make([]model.GWASSNPRecord, 0, len(m))
 	for _, rec := range m {
 		records = append(records, rec)
 	}
 	return records
 }
 
-// convertGWASMapToGenotype converts map[string]gwas.GWASSNPRecord to map[string]genotype.GWASSNPRecord
-func convertGWASMapToGenotype(m map[string]gwas.GWASSNPRecord) map[string]genotype.GWASSNPRecord {
-	out := make(map[string]genotype.GWASSNPRecord, len(m))
-	for k, v := range m {
-		out[k] = genotype.GWASSNPRecord{
-			RSID:       v.RSID,
-			RiskAllele: v.RiskAllele,
-		}
-	}
-	return out
-}
 
-// convertValidatedSNPsToGWAS converts []genotype.ValidatedSNP to []gwas.ValidatedSNP
-func convertValidatedSNPsToGWAS(in []genotype.ValidatedSNP) []gwas.ValidatedSNP {
-	out := make([]gwas.ValidatedSNP, len(in))
-	for i, v := range in {
-		out[i] = gwas.ValidatedSNP{
-			RSID:        v.RSID,
-			Genotype:    v.Genotype,
-			FoundInGWAS: v.FoundInGWAS,
-		}
-	}
-	return out
-}
-
-// convertAnnotatedSNPsToPRS converts []gwas.AnnotatedSNP to []prs.AnnotatedSNP
-func convertAnnotatedSNPsToPRS(in []gwas.AnnotatedSNP) []prs.AnnotatedSNP {
-	out := make([]prs.AnnotatedSNP, len(in))
-	for i, v := range in {
-		out[i] = prs.AnnotatedSNP{
-			Rsid:       v.RSID,
-			Genotype:   v.Genotype,
-			RiskAllele: v.RiskAllele,
-			Beta:       v.Beta,
-			Dosage:     v.Dosage,
-			Trait:      v.Trait,
-		}
-	}
-	return out
-}
-
-// convertReferenceStatsToPRS converts reference.ReferenceStats to prs.referenceStats
-func convertReferenceStatsToPRS(in reference.ReferenceStats) interface{} {
-	// Use interface{} to allow passing to NormalizePRS; Go will check the fields match
-	return struct {
-		Mean float64
-		Std  float64
-		Min  float64
-		Max  float64
-	}{
-		Mean: in.Mean,
-		Std:  in.Std,
-		Min:  in.Min,
-		Max:  in.Max,
-	}
-}
 
 
 func main() {

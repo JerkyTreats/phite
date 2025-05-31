@@ -3,6 +3,7 @@ package prs
 import (
 	"testing"
 	"reflect"
+	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
 
@@ -15,10 +16,10 @@ func floatsAlmostEqual(a, b float64) bool {
 }
 
 func TestCalculatePRS_BasicSum(t *testing.T) {
-	snps := []AnnotatedSNP{
-		{"rs1", "AA", "A", 0.2, 2, "trait1"},
-		{"rs2", "AG", "G", -0.5, 1, "trait2"},
-		{"rs3", "TT", "T", 0.1, 0, "trait3"},
+	snps := []model.AnnotatedSNP{
+		{RSID: "rs1", Genotype: "AA", RiskAllele: "A", Beta: 0.2, Dosage: 2, Trait: "trait1"},
+		{RSID: "rs2", Genotype: "AG", RiskAllele: "G", Beta: -0.5, Dosage: 1, Trait: "trait2"},
+		{RSID: "rs3", Genotype: "TT", RiskAllele: "T", Beta: 0.1, Dosage: 0, Trait: "trait3"},
 	}
 
 	expected := PRSResult{
@@ -41,7 +42,7 @@ func TestCalculatePRS_BasicSum(t *testing.T) {
 }
 
 func TestCalculatePRS_EmptyInput(t *testing.T) {
-	result := CalculatePRS([]AnnotatedSNP{})
+	result := CalculatePRS([]model.AnnotatedSNP{})
 	if !floatsAlmostEqual(result.PRSScore, 0) {
 		t.Errorf("Empty input: PRSScore = %v, want 0", result.PRSScore)
 	}
@@ -52,8 +53,8 @@ func TestCalculatePRS_EmptyInput(t *testing.T) {
 
 func TestCalculatePRS_MissingSNPs(t *testing.T) {
 	// Simulate missing SNP by omitting from input; should just not contribute
-	snps := []AnnotatedSNP{
-		{"rs1", "AA", "A", 0.3, 2, "trait1"},
+	snps := []model.AnnotatedSNP{
+		{RSID: "rs1", Genotype: "AA", RiskAllele: "A", Beta: 0.3, Dosage: 2, Trait: "trait1"},
 	}
 
 	expected := PRSResult{
@@ -73,8 +74,8 @@ func TestCalculatePRS_MissingSNPs(t *testing.T) {
 }
 
 func TestCalculatePRS_NegativeEffectSize(t *testing.T) {
-	snps := []AnnotatedSNP{
-		{"rsX", "GG", "G", -1.2, 2, "traitX"},
+	snps := []model.AnnotatedSNP{
+		{RSID: "rsX", Genotype: "GG", RiskAllele: "G", Beta: -1.2, Dosage: 2, Trait: "traitX"},
 	}
 
 	expected := PRSResult{

@@ -5,38 +5,21 @@ import (
 	"errors"
 	"os"
 	"strings"
+
+	"phite.io/polygenic-risk-calculator/internal/model"
 )
-
-// UserGenotype represents a user's SNP genotype.
-type UserGenotype struct {
-	RSID     string // SNP identifier
-	Genotype string // e.g., "AA", "CT"
-}
-
-// ValidatedSNP represents an SNP that has been checked against user data and GWAS data.
-type ValidatedSNP struct {
-	RSID        string
-	Genotype    string
-	FoundInGWAS bool
-}
-
-// GWASSNPRecord is a simplified representation of a GWAS SNP record for testing purposes.
-type GWASSNPRecord struct {
-	RSID       string
-	RiskAllele string
-}
 
 // ParseGenotypeDataInput holds all the necessary inputs for ParseGenotypeData.
 type ParseGenotypeDataInput struct {
 	GenotypeFilePath string
 	RequestedRSIDs   []string
-	GWASData         map[string]GWASSNPRecord // rsid -> GWASSNPRecord
+	GWASData         map[string]model.GWASSNPRecord // rsid -> GWASSNPRecord
 }
 
 // ParseGenotypeDataOutput holds the results of parsing and validation.
 type ParseGenotypeDataOutput struct {
-	UserGenotypes []UserGenotype
-	ValidatedSNPs []ValidatedSNP
+	UserGenotypes []model.UserGenotype
+	ValidatedSNPs []model.ValidatedSNP
 	SNPsMissing   []string // rsids not found in user data or GWAS, or non-GACT
 }
 
@@ -104,12 +87,12 @@ func ParseGenotypeData(input ParseGenotypeDataInput) (ParseGenotypeDataOutput, e
 	for rsid := range requested {
 		geno, found := userGenos[rsid]
 		if found && isValidGenotype(geno) {
-			output.UserGenotypes = append(output.UserGenotypes, UserGenotype{RSID: rsid, Genotype: geno})
+			output.UserGenotypes = append(output.UserGenotypes, model.UserGenotype{RSID: rsid, Genotype: geno})
 			foundInGWAS := false
 			if _, ok := input.GWASData[rsid]; ok {
 				foundInGWAS = true
 			}
-			output.ValidatedSNPs = append(output.ValidatedSNPs, ValidatedSNP{RSID: rsid, Genotype: geno, FoundInGWAS: foundInGWAS})
+			output.ValidatedSNPs = append(output.ValidatedSNPs, model.ValidatedSNP{RSID: rsid, Genotype: geno, FoundInGWAS: foundInGWAS})
 		} else {
 			output.SNPsMissing = append(output.SNPsMissing, rsid)
 		}

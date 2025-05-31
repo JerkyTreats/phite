@@ -1,5 +1,7 @@
 package prs
 
+import "phite.io/polygenic-risk-calculator/internal/model"
+
 import (
 	"testing"
 	"math"
@@ -9,7 +11,7 @@ func TestNormalizePRS(t *testing.T) {
 	tests := []struct {
 		name           string
 		prsScore       float64
-		ref            referenceStats
+		ref            model.ReferenceStats
 		expectsError   bool
 		expectedZ      float64
 		expectedPct    float64
@@ -17,34 +19,34 @@ func TestNormalizePRS(t *testing.T) {
 		{
 			name:         "PRS at mean",
 			prsScore:     1.0,
-			ref:          referenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
+			ref:          model.ReferenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
 			expectedZ:    0.0,
 			expectedPct:  50.0,
 		},
 		{
 			name:         "PRS at min",
 			prsScore:     0.0,
-			ref:          referenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
+			ref:          model.ReferenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
 			expectedZ:    -2.0,
 			expectedPct:  2.28, // approx percentile for z=-2
 		},
 		{
 			name:         "PRS at max",
 			prsScore:     2.0,
-			ref:          referenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
+			ref:          model.ReferenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
 			expectedZ:    2.0,
 			expectedPct:  97.72, // approx percentile for z=2
 		},
 		{
 			name:         "Malformed stats (zero std)",
 			prsScore:     1.0,
-			ref:          referenceStats{Mean: 1.0, Std: 0.0, Min: 0.0, Max: 2.0},
+			ref:          model.ReferenceStats{Mean: 1.0, Std: 0.0, Min: 0.0, Max: 2.0},
 			expectsError: true,
 		},
 		{
 			name:         "Malformed stats (missing mean)",
 			prsScore:     1.0,
-			ref:          referenceStats{Std: 0.5, Min: 0.0, Max: 2.0},
+			ref:          model.ReferenceStats{Std: 0.5, Min: 0.0, Max: 2.0},
 			expectsError: true,
 		},
 	}

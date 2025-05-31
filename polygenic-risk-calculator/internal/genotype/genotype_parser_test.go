@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"phite.io/polygenic-risk-calculator/internal/genotype"
+	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
 // Helper function to sort slices in ParseGenotypeDataOutput for consistent comparison
@@ -20,7 +21,7 @@ func sortOutput(output *genotype.ParseGenotypeDataOutput) {
 func TestParseGenotypeData(t *testing.T) {
 	// Define a common set of requested RSIDs and mock GWAS data for tests
 	baseRequestedRSIDs := []string{"rs1001", "rs1002", "rs1003", "rs1004", "rs2001", "rs2002", "rs9999"}
-	mockGWASData := map[string]genotype.GWASSNPRecord{
+	mockGWASData := map[string]model.GWASSNPRecord{
 		"rs1001": {RSID: "rs1001", RiskAllele: "A"},
 		"rs1002": {RSID: "rs1002", RiskAllele: "C"},
 		// rs1003 not in GWAS mock
@@ -53,12 +54,12 @@ func TestParseGenotypeData(t *testing.T) {
 				GWASData:       mockGWASData,
 			},
 			wantOutput: genotype.ParseGenotypeDataOutput{
-				UserGenotypes: []genotype.UserGenotype{
+				UserGenotypes: []model.UserGenotype{
 					{RSID: "rs1001", Genotype: "AG"},
 					{RSID: "rs1002", Genotype: "CC"},
 					{RSID: "rs1003", Genotype: "TA"},
 				},
-				ValidatedSNPs: []genotype.ValidatedSNP{
+				ValidatedSNPs: []model.ValidatedSNP{
 					{RSID: "rs1001", Genotype: "AG", FoundInGWAS: true},
 					{RSID: "rs1002", Genotype: "CC", FoundInGWAS: true},
 					{RSID: "rs1003", Genotype: "TA", FoundInGWAS: false},
@@ -75,12 +76,12 @@ func TestParseGenotypeData(t *testing.T) {
 				GWASData:       mockGWASData,
 			},
 			wantOutput: genotype.ParseGenotypeDataOutput{
-				UserGenotypes: []genotype.UserGenotype{
+				UserGenotypes: []model.UserGenotype{
 					{RSID: "rs2001", Genotype: "AG"},
 					{RSID: "rs2002", Genotype: "CC"},
 					// rs2003 is TA, not in baseRequestedRSIDs for this example, but could be added
 				},
-				ValidatedSNPs: []genotype.ValidatedSNP{
+				ValidatedSNPs: []model.ValidatedSNP{
 					{RSID: "rs2001", Genotype: "AG", FoundInGWAS: true},
 					{RSID: "rs2002", Genotype: "CC", FoundInGWAS: false}, // Not in mockGWASData
 				},
@@ -99,8 +100,8 @@ func TestParseGenotypeData(t *testing.T) {
 				GWASData:       mockGWASData,
 			},
 			wantOutput: genotype.ParseGenotypeDataOutput{
-				UserGenotypes: nil,                // Or []genotype.UserGenotype{}
-				ValidatedSNPs: nil,                // Or []genotype.ValidatedSNP{}
+				UserGenotypes: nil,                // Or []model.UserGenotype{}
+				ValidatedSNPs: nil,                // Or []model.ValidatedSNP{}
 				SNPsMissing:   baseRequestedRSIDs, // All requested SNPs will be missing
 			},
 			wantErr: false, // Empty file is not an error, just no data found

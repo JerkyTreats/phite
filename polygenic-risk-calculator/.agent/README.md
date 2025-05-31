@@ -9,7 +9,7 @@ Welcome to the PHITE polygenic risk calculator project. This document provides c
 | Brief | Status | Description |
 |-------|--------|-------------|
 | DuckDB Shared Utilities           | Complete   |  |
-| Entrypoint                        | In Progress|  |
+| Entrypoint                        | Complete   | CLI pipeline unified, type-safe, and all conversions removed |
 | Genotype File Parser              | Complete   |  |
 | GWAS Data Fetcher                 | Complete   |  |
 | GWAS DuckDB Loader                | Complete   |  |
@@ -17,7 +17,7 @@ Welcome to the PHITE polygenic risk calculator project. This document provides c
 | PRS Calculator                    | Complete   |  |
 | Reference Stats Loader            | Complete   |  |
 | Score Normalizer                  | Complete   |  |
-| Shared Model Package              | Planned    | Unify all canonical models in internal/model |
+| Shared Model Package              | Complete   | Canonical models used throughout pipeline, type unification enforced |
 | Trait Summary Generator           | Complete   |
 
 **Legend:**

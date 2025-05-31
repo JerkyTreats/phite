@@ -3,6 +3,7 @@ package prs
 import (
 	"errors"
 	"math"
+	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
 // NormalizedPRS represents the normalized PRS result.
@@ -12,17 +13,11 @@ type NormalizedPRS struct {
 	Percentile float64 `json:"percentile"`
 }
 
-// referenceStats holds reference population statistics for normalization.
-type referenceStats struct {
-	Mean float64
-	Std  float64
-	Min  float64
-	Max  float64
-}
+// ReferenceStats holds reference population statistics for normalization.
 
 // NormalizePRS normalizes a raw PRS score using reference stats.
 // Returns NormalizedPRS and error if stats are missing or malformed.
-func NormalizePRS(prs PRSResult, ref referenceStats) (NormalizedPRS, error) {
+func NormalizePRS(prs PRSResult, ref model.ReferenceStats) (NormalizedPRS, error) {
 	if ref.Std == 0 || ref.Mean == 0 || math.IsNaN(ref.Mean) || math.IsNaN(ref.Std) {
 		return NormalizedPRS{}, errors.New("invalid reference stats: mean and std must be nonzero and present")
 	}

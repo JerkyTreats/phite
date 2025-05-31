@@ -1,15 +1,8 @@
 package prs
 
-// Canonical structs from data_model.md
+import "phite.io/polygenic-risk-calculator/internal/model"
 
-type AnnotatedSNP struct {
-	Rsid       string
-	Genotype   string
-	RiskAllele string
-	Beta       float64
-	Dosage     int
-	Trait      string // optional
-}
+// Canonical structs from data_model.md
 
 type SNPContribution struct {
 	Rsid         string
@@ -24,13 +17,13 @@ type PRSResult struct {
 }
 
 // CalculatePRS computes the polygenic risk score for a set of SNPs.
-func CalculatePRS(snps []AnnotatedSNP) PRSResult {
+func CalculatePRS(snps []model.AnnotatedSNP) PRSResult {
 	var total float64
 	contributions := make([]SNPContribution, 0, len(snps))
 	for _, snp := range snps {
 		contribution := float64(snp.Dosage) * snp.Beta
 		contributions = append(contributions, SNPContribution{
-			Rsid:         snp.Rsid,
+			Rsid:         snp.RSID,
 			Dosage:       snp.Dosage,
 			Beta:         snp.Beta,
 			Contribution: contribution,

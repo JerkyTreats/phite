@@ -1,36 +1,15 @@
 package gwas
 
-// Canonical structs from data_model.md
-type ValidatedSNP struct {
-	RSID        string
-	Genotype    string
-	FoundInGWAS bool
-}
-
-type GWASSNPRecord struct {
-	RSID       string
-	RiskAllele string
-	Beta       float64
-	Trait      string // optional
-}
-
-type AnnotatedSNP struct {
-	RSID       string
-	Genotype   string
-	RiskAllele string
-	Beta       float64
-	Dosage     int
-	Trait      string // optional
-}
+import "phite.io/polygenic-risk-calculator/internal/model"
 
 type GWASDataFetcherInput struct {
-	ValidatedSNPs     []ValidatedSNP
-	AssociationsClean []GWASSNPRecord
+	ValidatedSNPs     []model.ValidatedSNP
+	AssociationsClean []model.GWASSNPRecord
 }
 
 type GWASDataFetcherOutput struct {
-	AnnotatedSNPs []AnnotatedSNP
-	GWASRecords   []GWASSNPRecord
+	AnnotatedSNPs []model.AnnotatedSNP
+	GWASRecords   []model.GWASSNPRecord
 }
 
 // FetchAndAnnotateGWAS fetches GWAS associations for validated SNPs and annotates them with risk allele, effect size, and computed dosage.
@@ -45,7 +24,7 @@ func FetchAndAnnotateGWAS(input GWASDataFetcherInput) GWASDataFetcherOutput {
 			if assoc.RSID == snp.RSID {
 				found = true
 				dosage := computeDosage(snp.Genotype, assoc.RiskAllele)
-				annotated := AnnotatedSNP{
+				annotated := model.AnnotatedSNP{
 					RSID:       snp.RSID,
 					Genotype:   snp.Genotype,
 					RiskAllele: assoc.RiskAllele,
