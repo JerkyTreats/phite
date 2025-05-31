@@ -6,17 +6,18 @@ Welcome to the PHITE polygenic risk calculator project. This document provides c
 
 > **NOTE:** When you begin work on a new agent/component brief, or complete its implementation, please update the Progress table below to reflect its current status (To Do, In Progress, Complete). This ensures all contributors have an accurate view of project progress.
 
-| Brief | Status |
-|-------|--------|
-| DuckDB Shared Utilities           | Complete   |
-| Entrypoint                        | In Progress|
-| Genotype File Parser              | Complete   |
-| GWAS Data Fetcher                 | Complete   |
-| GWAS DuckDB Loader                | Complete   |
-| Output Formatter                  | Complete   |
-| PRS Calculator                    | Complete   |
-| Reference Stats Loader            | Complete   |
-| Score Normalizer                  | Complete   |
+| Brief | Status | Description |
+|-------|--------|-------------|
+| DuckDB Shared Utilities           | Complete   |  |
+| Entrypoint                        | In Progress|  |
+| Genotype File Parser              | Complete   |  |
+| GWAS Data Fetcher                 | Complete   |  |
+| GWAS DuckDB Loader                | Complete   |  |
+| Output Formatter                  | Complete   |  |
+| PRS Calculator                    | Complete   |  |
+| Reference Stats Loader            | Complete   |  |
+| Score Normalizer                  | Complete   |  |
+| Shared Model Package              | Planned    | Unify all canonical models in internal/model |
 | Trait Summary Generator           | Complete   |
 
 **Legend:**
