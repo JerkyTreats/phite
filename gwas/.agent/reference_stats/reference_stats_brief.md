@@ -2,6 +2,14 @@
 
 > **Location:** This brief and all GWAS data engineering is located in the shared, normalized GWAS database directory (`gwas/`), outside of any specific application module.
 
+> **Integration with Rebuildable Database:**
+> - All reference stats and panel tables (e.g., `reference_panel`) **must be defined in schema SQL files** (e.g., `sql/create_table_reference_panel.sql`).
+> - The main DB build script (`build_db.sh`) must `.read` these schema files so that all required tables are created on every DB rebuild.
+> - Data ingestion scripts (for panel/sample/reference data) should be run **after** the database and tables are created.
+> - This ensures the database can be fully rebuilt from schema and raw data at any time, supporting reproducibility and local development.
+
+---
+
 
 **Project:** GWAS Database (gwas.duckdb) — Reference Panel and Stats Ingestion
 
@@ -52,8 +60,8 @@ Provide a reproducible, script-driven workflow to download 1000 Genomes referenc
 ---
 
 ## Inputs
-- 1000G panel file URL
-- VCF base URL
+- 1000G panel file URL (default: `https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/integrated_call_samples_v3.20130502.ALL.panel`)
+- VCF base URL (default: `https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502`)
 - Target ancestry (e.g., EUR)
 - DuckDB database path
 
@@ -64,15 +72,55 @@ Provide a reproducible, script-driven workflow to download 1000 Genomes referenc
 
 ## Required Tests
 - Panel and sample data downloaded and inserted only if missing
-- Table schema matches requirements
+- Table schema matches requirements and is always present after DB rebuild
 - Errors are logged and script exits with nonzero status on failure
+- Database can be rebuilt from scratch using `build_db.sh` followed by data ingestion scripts
 
-## Example Invocation
-```bash
-bash scripts/run_reference_script.sh --db gwas.duckdb --ancestry EUR --chr 1
-```
+## Reference Panel Data Preparation Script
+
+To support the polygenic-risk-score pipeline, a new script (e.g., `scripts/reference_script.sh`) must be created with the following minimal responsibilities:
+
+### 1. Download the 1000 Genomes Sample Panel
+- Download the panel file from:
+  - `https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/integrated_call_samples_v3.20130502.ALL.panel`
+- Save to a local data directory (e.g., `data/`).
+
+### 2. Filter for Target Ancestry
+- Extract sample IDs for the desired ancestry (e.g., EUR) from the panel file.
+- Output a text file with one sample ID per line (e.g., `eur_samples.txt`).
+
+### 4. Insert Sample Metadata into DuckDB
+- Insert the filtered sample IDs, ancestry, and sex into the `reference_panel` table in the DuckDB database.
+- Use the schema:
+  - `sample_id TEXT, ancestry TEXT, sex TEXT`
+- Use the DuckDB CLI or SQL `COPY` command for bulk insert.
+
+### 5. Log Actions and Errors
+- All steps must log completion and any errors to stdout or a log file.
 
 ---
+
+**No additional or extraneous steps are to be included. This script is solely for preparing the reference panel/sample metadata required by the polygenic-risk-score pipeline.**
+
+---
+
+## Example Workflow
+1. **Rebuild the database schema and ingest reference data:**
+   ```bash
+   bash build_db.sh
+   ```
+2. **(Optional) Inspect tables:**
+   ```bash
+   duckdb gwas.duckdb ".schema"
+   ```
+
+---
+
+## Reproducibility Checklist
+- [ ] All schema (including reference stats tables) defined in SQL files and referenced by `build_db.sh`
+- [ ] Database can be rebuilt from schema and raw data alone
+- [ ] Data download and ingestion scripts are run automatically by `build_db.sh`
+- [ ] Input files and script versions are tracked for provenance
 
 ## Notes
 - This brief covers only panel/sample ingestion. PRS calculation and stats insertion are handled elsewhere.

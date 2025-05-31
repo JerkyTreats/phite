@@ -1,5 +1,7 @@
 .owl
 
+gwas/data/
+
 # Binaries for programs and plugins
 *.exe
 *.dll

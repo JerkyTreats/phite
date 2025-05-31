@@ -18,8 +18,11 @@ duckdb gwas.duckdb <<'EOF'
 .read sql/create_table_associations_clean.sql
 .read sql/create_table_studies_clean.sql
 .read sql/create_table_traits.sql
-
-
 EOF
+
+echo "🚀 Running reference script to prepare reference panel/sample metadata..."
+bash scripts/reference_script.sh
+echo "✅ Reference script execution complete."
+
 
 echo "✅ Rebuild complete: gwas/gwas.duckdb"
