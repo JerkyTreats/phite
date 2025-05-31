@@ -17,3 +17,15 @@ func TestEntrypoint_MissingRequiredArgs(t *testing.T) {
 		t.Errorf("expected usage or error message, got: %q", outStr)
 	}
 }
+
+func TestEntrypoint_GenotypeFileNotFound(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	args := []string{"--genotype-file", "nonexistent_file.txt", "--snps", "rs123"}
+	exitCode := RunCLI(args, &stdout, &stderr)
+	if exitCode == 0 {
+		t.Fatalf("expected non-zero exit code for missing genotype file")
+	}
+	if !strings.Contains(stderr.String(), "not found") {
+		t.Errorf("expected error about missing genotype file, got: %q", stderr.String())
+	}
+}

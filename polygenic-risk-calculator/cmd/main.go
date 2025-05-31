@@ -26,6 +26,12 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	// Check if genotype file exists
+	if _, err := os.Stat(*genotypeFile); err != nil {
+		fmt.Fprintf(stderr, "Error: genotype file not found: %s\n", *genotypeFile)
+		return 1
+	}
+
 	// TODO: Implement pipeline orchestration and error handling as per brief
 	_ = *outputPath
 	_ = *format
