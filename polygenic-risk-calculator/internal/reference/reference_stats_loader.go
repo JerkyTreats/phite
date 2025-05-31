@@ -1,7 +1,7 @@
 package reference
 
 import (
-	"fmt"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 	"strings"
 
 	"phite.io/polygenic-risk-calculator/internal/dbutil"
@@ -19,15 +19,18 @@ type ReferenceStats struct {
 
 // LoadReferenceStatsFromDuckDB loads reference stats for given ancestry, trait, and model from DuckDB.
 func LoadReferenceStatsFromDuckDB(dbPath, ancestry, trait, model string) (*ReferenceStats, error) {
+	logging.Info("Opening DuckDB at %s", dbPath)
 	db, err := dbutil.OpenDuckDB(dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open DuckDB: %w", err)
+		logging.Error("failed to open DuckDB: %v", err)
+		return nil, err
 	}
 	defer db.Close()
 
 	err = dbutil.ValidateTable(db, "reference_stats", []string{"mean", "std", "min", "max", "ancestry", "trait", "model"})
 	if err != nil {
-		return nil, fmt.Errorf("reference_stats table validation failed: %w", err)
+		logging.Error("reference_stats table validation failed: %v", err)
+		return nil, err
 	}
 
 	query := `SELECT mean, std, min, max, ancestry, trait, model FROM reference_stats WHERE ancestry = ? AND trait = ? AND model = ? LIMIT 1`
@@ -37,9 +40,12 @@ func LoadReferenceStatsFromDuckDB(dbPath, ancestry, trait, model string) (*Refer
 	err = row.Scan(&stats.Mean, &stats.Std, &stats.Min, &stats.Max, &stats.Ancestry, &stats.Trait, &stats.Model)
 	if err != nil {
 		if strings.Contains(err.Error(), "no rows") {
+			logging.Info("No reference stats found for ancestry=%s, trait=%s, model=%s", ancestry, trait, model)
 			return nil, nil // No matching stats found
 		}
-		return nil, fmt.Errorf("failed to scan stats: %w", err)
+		logging.Error("failed to scan stats: %v", err)
+		return nil, err
 	}
+	logging.Info("Loaded reference stats: ancestry=%s, trait=%s, model=%s", stats.Ancestry, stats.Trait, stats.Model)
 	return &stats, nil
 }

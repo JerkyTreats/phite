@@ -1,9 +1,7 @@
 package output
 
-// GenerateTraitSummaries aggregates SNPs by trait and produces a summary for each trait.
-// It assigns risk levels based on normalized PRS percentile: <20 = low, <80 = moderate, >=80 = high.
-// Missing or empty trait names are grouped as "unknown".
 import (
+	"phite.io/polygenic-risk-calculator/internal/logging"
 	"phite.io/polygenic-risk-calculator/internal/model"
 	"phite.io/polygenic-risk-calculator/internal/prs"
 )
@@ -12,6 +10,7 @@ import (
 // It assigns risk levels based on normalized PRS percentile: <20 = low, <80 = moderate, >=80 = high.
 // Missing or empty trait names are grouped as "unknown".
 func GenerateTraitSummaries(snps []model.AnnotatedSNP, norm prs.NormalizedPRS) []TraitSummary {
+	logging.Info("Generating trait summaries for %d SNPs", len(snps))
 	if len(snps) == 0 {
 		return nil
 	}
@@ -42,5 +41,6 @@ func GenerateTraitSummaries(snps []model.AnnotatedSNP, norm prs.NormalizedPRS) [
 		ts.RiskLevel = riskLevel
 		summaries = append(summaries, *ts)
 	}
+	logging.Info("Generated %d trait summaries", len(summaries))
 	return summaries
 }

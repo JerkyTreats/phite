@@ -2,23 +2,26 @@ package main
 
 import (
 	"flag"
-	"fmt"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 	"io"
 	"os"
 	"strings"
 
-	"phite.io/polygenic-risk-calculator/internal/model"
 	"phite.io/polygenic-risk-calculator/internal/genotype"
 	"phite.io/polygenic-risk-calculator/internal/gwas"
-	"phite.io/polygenic-risk-calculator/internal/reference"
-	"phite.io/polygenic-risk-calculator/internal/prs"
+	"phite.io/polygenic-risk-calculator/internal/model"
 	"phite.io/polygenic-risk-calculator/internal/output"
+	"phite.io/polygenic-risk-calculator/internal/prs"
+	"phite.io/polygenic-risk-calculator/internal/reference"
 	"phite.io/polygenic-risk-calculator/internal/snps"
 )
 
-
 // RunCLI parses arguments and runs the entrypoint logic. Returns exit code.
 func RunCLI(args []string, stdout, stderr io.Writer) int {
+	logging.Info("PHITE CLI started with args: %v", args)
+	defer func() {
+		logging.Info("PHITE CLI exiting")
+	}()
 	fs := flag.NewFlagSet("polygenic-risk-calculator", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	genotypeFile := fs.String("genotype-file", "", "Path to user genotype file (required)")
@@ -27,30 +30,32 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 	outputPath := fs.String("output", "", "Output file path (optional)")
 	format := fs.String("format", "json", "Output format: json or csv (optional)")
 
+	logging.Info("Parsing CLI flags")
 	if err := fs.Parse(args); err != nil {
+		logging.Error("flag parse error: %v", err)
 		return 2 // flag parse error
 	}
 
 	// Enforce mutual exclusivity and required flags
 	if *snpsFlag != "" && *snpsFileFlag != "" {
-		fmt.Fprintln(stderr, "Error: --snps and --snps-file are mutually exclusive. Provide only one.")
+		logging.Error("--snps and --snps-file are mutually exclusive. Provide only one.")
 		fs.Usage()
 		return 1
 	}
 	if *snpsFlag == "" && *snpsFileFlag == "" {
-		fmt.Fprintln(stderr, "Error: one of --snps or --snps-file is required.")
+		logging.Error("one of --snps or --snps-file is required.")
 		fs.Usage()
 		return 1
 	}
 	if *genotypeFile == "" {
-		fmt.Fprintln(stderr, "Error: --genotype-file is required.")
+		logging.Error("--genotype-file is required.")
 		fs.Usage()
 		return 1
 	}
 
 	// Check if genotype file exists
 	if _, err := os.Stat(*genotypeFile); err != nil {
-		fmt.Fprintf(stderr, "Error: genotype file not found: %s\n", *genotypeFile)
+		logging.Error("genotype file not found: %s", *genotypeFile)
 		return 1
 	}
 
@@ -66,7 +71,7 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 		out := make([]string, 0, len(rsids))
 		for _, r := range rsids {
 			if r == "" {
-				fmt.Fprintln(stderr, "Error: empty rsid in --snps list.")
+				logging.Error("empty rsid in --snps list.")
 				return 1
 			}
 			if _, exists := seen[r]; !exists {
@@ -79,12 +84,13 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 		var err error
 		rsids, err = snps.ParseSNPsFromFile(*snpsFileFlag)
 		if err != nil {
-			fmt.Fprintf(stderr, "Error: failed to parse SNPs from file: %v\n", err)
+			logging.Error("failed to parse SNPs from file: %v", err)
 			return 1
 		}
+		logging.Info("Parsed %d SNP rsids from file %s", len(rsids), *snpsFileFlag)
 	}
 	if len(rsids) == 0 {
-		fmt.Fprintln(stderr, "Error: no SNPs provided.")
+		logging.Error("no SNPs provided.")
 		return 1
 	}
 
@@ -93,36 +99,45 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 	if gwasDB == "" {
 		gwasDB = "internal/gwas/testdata/gwas.duckdb" // fallback for test/dev
 	}
+	logging.Info("Loading GWAS records from %s", gwasDB)
 	gwasRecords, err := gwas.FetchGWASRecords(gwasDB, rsids)
 	if err != nil {
-		fmt.Fprintf(stderr, "Error: failed to load GWAS records: %v\n", err)
+		logging.Error("failed to load GWAS records: %v", err)
 		return 1
 	}
+	logging.Info("Loaded %d GWAS records", len(gwasRecords))
 
 	// Parse user genotype file
+	logging.Info("Parsing genotype file: %s", *genotypeFile)
 	genoOut, err := genotype.ParseGenotypeData(genotype.ParseGenotypeDataInput{
 		GenotypeFilePath: *genotypeFile,
 		RequestedRSIDs:   rsids,
 		GWASData:         gwasRecords,
 	})
 	if err != nil {
-		fmt.Fprintf(stderr, "Error: failed to parse genotype file: %v\n", err)
+		logging.Error("failed to parse genotype file: %v", err)
 		return 1
 	}
+	logging.Info("Parsed genotype file, validated %d SNPs", len(genoOut.ValidatedSNPs))
 
 	// Annotate SNPs
+	logging.Info("Annotating SNPs with GWAS associations")
 	gwasOutput := gwas.FetchAndAnnotateGWAS(gwas.GWASDataFetcherInput{
 		ValidatedSNPs:     genoOut.ValidatedSNPs,
 		AssociationsClean: mapToGWASList(gwasRecords),
 	})
+	logging.Info("Annotated %d SNPs", len(gwasOutput.AnnotatedSNPs))
 
 	// Calculate PRS
+	logging.Info("Calculating PRS")
 	prsResult := prs.CalculatePRS(gwasOutput.AnnotatedSNPs)
+	logging.Info("PRS calculation complete")
 
 	// Load reference stats (optional)
 	refDB := os.Getenv("REFERENCE_DUCKDB")
 	var refStats *model.ReferenceStats
 	if refDB != "" {
+		logging.Info("Loading reference stats from %s", refDB)
 		// For demo: use EUR/height/v1 as default; in real CLI, expose as flags
 		refStatsRaw, _ := reference.LoadReferenceStatsFromDuckDB(refDB, "EUR", "height", "v1")
 		if refStatsRaw != nil {
@@ -135,23 +150,32 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 				Trait:    refStatsRaw.Trait,
 				Model:    refStatsRaw.Model,
 			}
+			logging.Info("Loaded reference stats for ancestry=%s, trait=%s, model=%s", refStats.Ancestry, refStats.Trait, refStats.Model)
+		} else {
+			logging.Info("No reference stats found in %s", refDB)
 		}
 	}
 
 	var norm prs.NormalizedPRS
 	if refStats != nil {
+		logging.Info("Normalizing PRS using reference stats")
 		norm, _ = prs.NormalizePRS(prsResult, *refStats)
+		logging.Info("PRS normalization complete")
 	}
 
 	// Generate trait summaries
+	logging.Info("Generating trait summaries")
 	summaries := output.GenerateTraitSummaries(gwasOutput.AnnotatedSNPs, norm)
+	logging.Info("Generated %d trait summaries", len(summaries))
 
 	// Output results
+	logging.Info("Formatting output: format=%s, outputPath=%s", *format, *outputPath)
 	err = output.FormatOutput(norm, prsResult, summaries, genoOut.SNPsMissing, *format, *outputPath, stdout)
 	if err != nil {
-		fmt.Fprintf(stderr, "Error: failed to format output: %v\n", err)
+		logging.Error("failed to format output: %v", err)
 		return 1
 	}
+	logging.Info("Output formatting complete")
 
 	return 0
 }
@@ -168,9 +192,7 @@ func mapToGWASList(m map[string]model.GWASSNPRecord) []model.GWASSNPRecord {
 	return records
 }
 
-
-
-
 func main() {
+	logging.Info("PHITE CLI invoked")
 	os.Exit(RunCLI(os.Args[1:], os.Stdout, os.Stderr))
 }

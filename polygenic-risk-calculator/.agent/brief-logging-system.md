@@ -28,10 +28,10 @@ Implement a robust logging system for PHITE CLI and internal packages using the 
 - Integrate logger configuration (e.g., log level) with the centralized config system (viper).
 - Provide clear documentation and examples for INFO-level logging:
 
-  ```go
-  import "phite.io/polygenic-risk-calculator/internal/logging"
-  logging.Info("Loaded GWAS summary statistics from %s", filePath)
-  ```
+```go
+import "phite.io/polygenic-risk-calculator/internal/logging"
+logging.Info("Loaded GWAS summary statistics from %s", filePath)
+```
 
 ### 2. Configurable Log Level
 - Assume the existence of a user config file at `~/.phite/config.json`.
@@ -46,10 +46,10 @@ Implement a robust logging system for PHITE CLI and internal packages using the 
 - All INFO-level events (e.g., start/finish of major steps, successful file loads, user actions, etc.) must use the logger's INFO method.
 - Example usage:
 
-  ```go
-  import "phite.io/polygenic-risk-calculator/internal/logging"
-  logging.Info("Loaded GWAS summary statistics from %s", filePath)
-  ```
+```go
+import "phite.io/polygenic-risk-calculator/internal/logging"
+logging.Info("Loaded GWAS summary statistics from %s", filePath)
+```
 
 - Do not use `fmt.Println` or `log.Printf` for such messages.
 
@@ -115,11 +115,11 @@ Implement a robust logging system for PHITE CLI and internal packages using the 
 - [spf13/viper documentation](https://github.com/spf13/viper)
 - Example config file:
 
-  ```json
-  {
-    "log_level": "DEBUG"
-  }
-  ```
+```json
+{
+  "log_level": "DEBUG"
+}
+```
 
 - **Links to Broader Implementation Guidance:**
   - See [README.md](./README.md) for project-wide agent and implementation standards.

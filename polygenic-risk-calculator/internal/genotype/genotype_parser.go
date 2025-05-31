@@ -3,6 +3,7 @@ package genotype
 import (
 	"bufio"
 	"errors"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 	"os"
 	"strings"
 
@@ -42,8 +43,10 @@ func ParseGenotypeData(input ParseGenotypeDataInput) (ParseGenotypeDataOutput, e
 	output := ParseGenotypeDataOutput{}
 	userGenos := make(map[string]string)
 
+	logging.Info("Opening genotype file: %s", input.GenotypeFilePath)
 	f, err := os.Open(input.GenotypeFilePath)
 	if err != nil {
+		logging.Error("failed to open genotype file: %s, err: %v", input.GenotypeFilePath, err)
 		return ParseGenotypeDataOutput{}, err
 	}
 	defer f.Close()
@@ -59,11 +62,14 @@ func ParseGenotypeData(input ParseGenotypeDataInput) (ParseGenotypeDataOutput, e
 		if format == "" {
 			if len(cols) >= 5 && cols[0] == "rsid" && cols[3] == "allele1" {
 				format = "ancestry"
+				logging.Info("Detected genotype file format: AncestryDNA")
 				continue
 			} else if len(cols) >= 4 && cols[0] == "rsid" && cols[3] == "genotype" {
 				format = "23andme"
+				logging.Info("Detected genotype file format: 23andMe")
 				continue
 			} else {
+				logging.Error("unknown genotype file format in file: %s", input.GenotypeFilePath)
 				return ParseGenotypeDataOutput{}, errors.New("unknown file format")
 			}
 		}
@@ -94,10 +100,12 @@ func ParseGenotypeData(input ParseGenotypeDataInput) (ParseGenotypeDataOutput, e
 			}
 			output.ValidatedSNPs = append(output.ValidatedSNPs, model.ValidatedSNP{RSID: rsid, Genotype: geno, FoundInGWAS: foundInGWAS})
 		} else {
+			logging.Error("requested SNP %s not found or invalid in genotype file", rsid)
 			output.SNPsMissing = append(output.SNPsMissing, rsid)
 		}
 	}
 
+	logging.Info("Validated %d SNPs, %d missing", len(output.ValidatedSNPs), len(output.SNPsMissing))
 	return output, nil
 }
 

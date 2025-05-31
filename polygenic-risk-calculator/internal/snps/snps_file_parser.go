@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 	"io"
 	"os"
 	"path/filepath"
@@ -28,27 +28,38 @@ func ParseSNPsFromFile(path string) ([]string, error) {
 		for k := range parsers {
 			supported = append(supported, k)
 		}
-		return nil, fmt.Errorf("unsupported file extension: %s (supported: %v)", ext, supported)
+		logging.Error("unsupported file extension: %s (supported: %v)", ext, supported)
+	return nil,  errors.New("unsupported file extension")
 	}
 
+	logging.Info("Opening SNP file: %s", path)
 	f, err := os.Open(path)
 	if err != nil {
+		logging.Error("failed to open SNP file: %s, err: %v", path, err)
 		return nil, err
 	}
 	defer f.Close()
-
-	return parser(f)
+	logging.Info("Detected SNP file format: %s", ext)
+	out, err := parser(f)
+	if err != nil {
+		logging.Error("failed to parse SNP file: %s, err: %v", path, err)
+		return nil, err
+	}
+	logging.Info("Parsed %d SNP rsids from file %s", len(out), path)
+	return out, nil
 }
 
 func parseJSON(r io.Reader) ([]string, error) {
 	var rsids []string
 	dec := json.NewDecoder(r)
 	if err := dec.Decode(&rsids); err != nil {
+		logging.Error("malformed JSON: %v", err)
 		return nil, errors.New("malformed JSON: " + err.Error())
 	}
 	for i := range rsids {
 		rsids[i] = strings.TrimSpace(rsids[i])
 		if rsids[i] == "" {
+			logging.Error("empty rsid found in JSON input")
 			return nil, errors.New("empty rsid found in input")
 		}
 	}
@@ -100,7 +111,8 @@ func parseDelimited(r io.Reader, sep rune) ([]string, error) {
 				}
 			}
 			if rsidColIdx == -1 {
-				return nil, errors.New("header does not contain 'rsid' column")
+				logging.Error("header does not contain 'rsid' column in delimited SNP file")
+			return nil, errors.New("header does not contain 'rsid' column")
 			}
 			continue
 		}
@@ -121,6 +133,7 @@ func parseDelimited(r io.Reader, sep rune) ([]string, error) {
 	for i := range rsids {
 		rsids[i] = strings.TrimSpace(rsids[i])
 		if strings.ContainsRune(rsids[i], '\x00') {
+			logging.Error("malformed input: null byte found in SNP file")
 			return nil, errors.New("malformed input: null byte found")
 		}
 	}
@@ -128,6 +141,7 @@ func parseDelimited(r io.Reader, sep rune) ([]string, error) {
 	out := make([]string, 0, len(rsids))
 	for _, r := range rsids {
 		if r == "" {
+			logging.Error("empty rsid found in delimited SNP file input")
 			return nil, errors.New("empty rsid found in input")
 		}
 		if _, exists := seen[r]; !exists {

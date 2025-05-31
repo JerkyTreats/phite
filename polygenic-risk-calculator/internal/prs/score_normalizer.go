@@ -2,7 +2,9 @@ package prs
 
 import (
 	"errors"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 	"math"
+
 	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
@@ -18,16 +20,20 @@ type NormalizedPRS struct {
 // NormalizePRS normalizes a raw PRS score using reference stats.
 // Returns NormalizedPRS and error if stats are missing or malformed.
 func NormalizePRS(prs PRSResult, ref model.ReferenceStats) (NormalizedPRS, error) {
+	logging.Info("Normalizing PRS score: raw=%v, ref_mean=%v, ref_std=%v", prs.PRSScore, ref.Mean, ref.Std)
 	if ref.Std == 0 || ref.Mean == 0 || math.IsNaN(ref.Mean) || math.IsNaN(ref.Std) {
+		logging.Error("invalid reference stats for normalization: mean=%v, std=%v", ref.Mean, ref.Std)
 		return NormalizedPRS{}, errors.New("invalid reference stats: mean and std must be nonzero and present")
 	}
 	z := (prs.PRSScore - ref.Mean) / ref.Std
 	percentile := 100 * normCdf(z)
-	return NormalizedPRS{
+	result := NormalizedPRS{
 		RawScore:   prs.PRSScore,
 		ZScore:     z,
 		Percentile: percentile,
-	}, nil
+	}
+	logging.Info("PRS normalization complete: z=%.4f, percentile=%.2f", z, percentile)
+	return result, nil
 }
 
 // normCdf returns the cumulative distribution function for the standard normal distribution.

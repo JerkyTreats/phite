@@ -1,6 +1,9 @@
 package gwas
 
-import "phite.io/polygenic-risk-calculator/internal/model"
+import (
+	"phite.io/polygenic-risk-calculator/internal/logging"
+	"phite.io/polygenic-risk-calculator/internal/model"
+)
 
 type GWASDataFetcherInput struct {
 	ValidatedSNPs     []model.ValidatedSNP
@@ -14,6 +17,7 @@ type GWASDataFetcherOutput struct {
 
 // FetchAndAnnotateGWAS fetches GWAS associations for validated SNPs and annotates them with risk allele, effect size, and computed dosage.
 func FetchAndAnnotateGWAS(input GWASDataFetcherInput) GWASDataFetcherOutput {
+	logging.Info("Starting GWAS annotation for %d SNPs", len(input.ValidatedSNPs))
 	var result GWASDataFetcherOutput
 	for _, snp := range input.ValidatedSNPs {
 		if !snp.FoundInGWAS {
@@ -37,9 +41,10 @@ func FetchAndAnnotateGWAS(input GWASDataFetcherInput) GWASDataFetcherOutput {
 			}
 		}
 		if !found {
-			// No GWAS association found, skip or handle as needed (here: skip)
+			logging.Error("No GWAS association found for SNP: %s", snp.RSID)
 		}
 	}
+	logging.Info("GWAS annotation complete: %d SNPs annotated", len(result.AnnotatedSNPs))
 	return result
 }
 

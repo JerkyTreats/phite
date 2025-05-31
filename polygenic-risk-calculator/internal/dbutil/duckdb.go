@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 
 	_ "github.com/marcboeker/go-duckdb"
 )
@@ -15,10 +16,13 @@ import (
 // OpenDuckDB opens a connection to a DuckDB database at the specified path.
 // The caller is responsible for closing the database.
 func OpenDuckDB(dbPath string) (*sql.DB, error) {
+	logging.Info("Opening DuckDB database at %s", dbPath)
 	db, err := sql.Open("duckdb", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		logging.Error("failed to open DuckDB database: %v", err)
+		return nil, err
 	}
+	logging.Info("DuckDB connection established at %s", dbPath)
 	return db, nil
 }
 
@@ -29,30 +33,38 @@ func OpenDuckDB(dbPath string) (*sql.DB, error) {
 func WithConnection(dbPath string, fn func(*sql.DB) error) error {
 	db, err := OpenDuckDB(dbPath)
 	if err != nil {
+		logging.Error("failed to open DuckDB connection: %v", err)
 		return err
 	}
-	defer db.Close()
+	defer func() {
+		logging.Info("Closing DuckDB connection at %s", dbPath)
+		db.Close()
+	}()
 	return fn(db)
 }
 
 // ValidateTable checks if the specified table exists and contains all required columns.
 // ValidateTable checks if the specified table exists and contains all required columns.
 func ValidateTable(db *sql.DB, tableName string, requiredColumns []string) error {
+	logging.Info("Validating table %q for required columns", tableName)
 	// Check if table exists
 	var exists bool
 	err := db.QueryRow(
 		`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ?)`, tableName).Scan(&exists)
 	if err != nil {
-		return fmt.Errorf("error checking if table exists: %w", err)
+		logging.Error("error checking if table exists: %v", err)
+		return err
 	}
 	if !exists {
-		return fmt.Errorf("table %q does not exist", tableName)
+		logging.Error("table %q does not exist", tableName)
+		return errors.New("table does not exist")
 	}
 	// Get actual columns from the table
 	rows, err := db.Query(
 		`SELECT column_name FROM information_schema.columns WHERE table_name = ?`, tableName)
 	if err != nil {
-		return fmt.Errorf("error querying table columns: %w", err)
+		logging.Error("error querying table columns: %v", err)
+		return err
 	}
 	defer rows.Close()
 	// Create a set of existing columns
@@ -60,12 +72,14 @@ func ValidateTable(db *sql.DB, tableName string, requiredColumns []string) error
 	for rows.Next() {
 		var colName string
 		if err := rows.Scan(&colName); err != nil {
-			return fmt.Errorf("error scanning column name: %w", err)
+			logging.Error("error scanning column name: %v", err)
+			return err
 		}
 		existingColumns[colName] = true
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("error iterating columns: %w", err)
+		logging.Error("error iterating columns: %v", err)
+		return err
 	}
 	// Check for missing columns
 	var missing []string
@@ -75,8 +89,10 @@ func ValidateTable(db *sql.DB, tableName string, requiredColumns []string) error
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("missing required columns in table %q: %v", tableName, missing)
+		logging.Error("missing required columns in table %q: %v", tableName, missing)
+		return errors.New("missing required columns")
 	}
+	logging.Info("Table %q validation passed", tableName)
 	return nil
 }
 
@@ -107,23 +123,29 @@ func TableExists(db *sql.DB, tableName string) (bool, error) {
 // If the function returns an error, the transaction is rolled back.
 // Otherwise, the transaction is committed.
 func ExecInTransaction(db *sql.DB, fn func(tx *sql.Tx) error) error {
+	logging.Info("Beginning transaction")
 	tx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf("error beginning transaction: %w", err)
+		logging.Error("error beginning transaction: %v", err)
+		return err
 	}
 	var success bool
 	defer func() {
 		if !success {
+			logging.Error("transaction rollback due to error")
 			tx.Rollback()
 		}
 	}()
 	if err := fn(tx); err != nil {
+		logging.Error("error in transaction function: %v", err)
 		return err
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("error committing transaction: %w", err)
+		logging.Error("error committing transaction: %v", err)
+		return err
 	}
 	success = true
+	logging.Info("Transaction committed successfully")
 	return nil
 }
 
@@ -131,7 +153,8 @@ func ExecInTransaction(db *sql.DB, fn func(tx *sql.Tx) error) error {
 func CloseDB(db *sql.DB) {
 	if db != nil {
 		if err := db.Close(); err != nil && !errors.Is(err, sql.ErrConnDone) {
-			// Optionally log error here
+			logging.Error("error closing database: %v", err)
 		}
+		logging.Info("Database connection closed")
 	}
 }

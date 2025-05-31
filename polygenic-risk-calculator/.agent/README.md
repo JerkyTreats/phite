@@ -18,7 +18,7 @@ Welcome to the PHITE polygenic risk calculator project. This document provides c
 | Reference Stats Loader            | Complete   |  |
 | Score Normalizer                  | Complete   |  |
 | Shared Model Package              | Complete   | Canonical models used throughout pipeline, type unification enforced |
-| Trait Summary Generator           | Complete   |
+| Trait Summary Generator           | Complete   | |
 
 **Legend:**
 - **To Do**: No substantive implementation found.
@@ -53,6 +53,7 @@ All logging in PHITE must use the centralized logger (`internal/logging`). Do no
   - User actions (e.g., command-line invocation, parameter parsing).
 - **How to log:** Use clear, concise, and structured messages. Include relevant context (file name, operation, user input).
 - **Examples:**
+
   ```go
   logging.Info("Loaded GWAS summary statistics from %s", filePath)
   logging.Info("PRS calculation completed for %d samples", sampleCount)
@@ -67,6 +68,7 @@ All logging in PHITE must use the centralized logger (`internal/logging`). Do no
   - External system or dependency failures.
 - **How to log:** Clearly state what failed and why. Include error details and context.
 - **Examples:**
+
   ```go
   logging.Error("Failed to load config from %s: %v", path, err)
   logging.Error("PRS calculation aborted: missing required SNP data")
@@ -82,17 +84,16 @@ All logging in PHITE must use the centralized logger (`internal/logging`). Do no
 - **Keep messages actionable**—they should help users or developers understand what happened and what to do next.
 - **INFO and ERROR logs** should be sufficient for most operational monitoring and user support.
 
-
 ## Commenting Style
 - Use GoDoc conventions for all exported symbols:
   - Start comments with the name of the item being described.
   - Be concise but informative.
   - Example:
 
-    ```go
-    // CalculatePRS computes the polygenic risk score for a set of SNPs.
-    func CalculatePRS(snps []AnnotatedSNP) float64 { ... }
-    ```
+  ```go
+  // CalculatePRS computes the polygenic risk score for a set of SNPs.
+  func CalculatePRS(snps []AnnotatedSNP) float64 { ... }
+  ```
 
 - Inline comments should clarify intent, not restate code.
 
