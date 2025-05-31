@@ -81,6 +81,8 @@ Expected columns (example):
 - Required columns: `rsid`, `chromosome`, `position`, `risk_allele`, `beta`, `trait`
 - Additional columns may be present (e.g., p-value, allele frequency)
 
+Example GWAS data can be found in `PHITE/gwas/`. Specifically, `PHITE/gwas/build_db.sh` will link to schema creation scripts for the expected input database.
+
 ### DNA/Genotype Input File (User Data)
 Supported formats: AncestryDNA, 23andMe
 

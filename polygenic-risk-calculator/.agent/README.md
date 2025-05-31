@@ -2,6 +2,26 @@
 
 Welcome to the PHITE polygenic risk calculator project. This document provides common instructions and standards for all agent/component implementers.
 
+## Progress
+
+| Brief | Status |
+|-------|--------|
+| DuckDB Shared Utilities           | To Do      |
+| Entrypoint                        | In Progress|
+| Genotype File Parser              | To Do      |
+| GWAS Data Fetcher                 | Complete   |
+| GWAS DuckDB Loader                | To Do      |
+| Output Formatter                  | Complete   |
+| PRS Calculator                    | Complete   |
+| Reference Stats Loader            | To Do      |
+| Score Normalizer                  | Complete   |
+| Trait Summary Generator           | Complete   |
+
+**Legend:**
+- **To Do**: No substantive implementation found.
+- **In Progress**: Partial implementation; core functionality not yet complete.
+- **Complete**: Fully implemented and tested, matches brief requirements.
+
 ## General Principles
 - **Test Driven Development (TDD):**
   - All code must be developed using TDD, following the red-green-refactor cycle.
@@ -23,10 +43,12 @@ Welcome to the PHITE polygenic risk calculator project. This document provides c
   - Start comments with the name of the item being described.
   - Be concise but informative.
   - Example:
+
     ```go
     // CalculatePRS computes the polygenic risk score for a set of SNPs.
     func CalculatePRS(snps []AnnotatedSNP) float64 { ... }
     ```
+
 - Inline comments should clarify intent, not restate code.
 
 ## Folder and File Structure
