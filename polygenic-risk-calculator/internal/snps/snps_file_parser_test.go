@@ -4,9 +4,11 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
 func TestParseSNPsFromFile_JSONValid(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	dir := t.TempDir()
 	jsonContent := `[
   "rs123",
@@ -31,6 +33,7 @@ func TestParseSNPsFromFile_JSONValid(t *testing.T) {
 }
 
 func TestParseSNPsFromFile_CSVOnePerLine(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	dir := t.TempDir()
 	csvContent := "rs123\nrs456\nrs789\n"
 	path := writeTempFile(t, dir, "*.csv", csvContent)
@@ -51,6 +54,7 @@ func TestParseSNPsFromFile_CSVOnePerLine(t *testing.T) {
 }
 
 func TestParseSNPsFromFile_CSVWithHeader(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	t.Run("tsv single-column header", func(t *testing.T) {
 		dir := t.TempDir()
 		tsvContent := "rsid\nrs123\nrs456\nrs789\n"
@@ -312,6 +316,7 @@ func TestParseSNPsFromFile_CSVWithHeader(t *testing.T) {
 
 }
 func TestParseSNPsFromFile_IgnoreBlankLines(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	tests := []struct {
 		name    string
 		ext     string
@@ -352,6 +357,7 @@ func TestParseSNPsFromFile_IgnoreBlankLines(t *testing.T) {
 }
 
 func TestParseSNPsFromFile_MalformedJSON(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	dir := t.TempDir()
 	badJSON := "[\"rs123\", \"rs456\"" // missing closing bracket
 	path := writeTempFile(t, dir, "*.json", badJSON)
@@ -362,6 +368,7 @@ func TestParseSNPsFromFile_MalformedJSON(t *testing.T) {
 }
 
 func TestParseSNPsFromFile_MalformedCSV(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	dir := t.TempDir()
 	badCSV := "rs123\n\x00\nrs456\n" // contains a null byte
 	path := writeTempFile(t, dir, "*.csv", badCSV)
@@ -372,6 +379,7 @@ func TestParseSNPsFromFile_MalformedCSV(t *testing.T) {
 }
 
 func TestParseSNPsFromFile_UnsupportedExtension(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	dir := t.TempDir()
 	content := "rs123\nrs456\n"
 	path := writeTempFile(t, dir, "*.xls", content)
@@ -382,6 +390,7 @@ func TestParseSNPsFromFile_UnsupportedExtension(t *testing.T) {
 }
 
 func TestParseSNPsFromFile_DuplicateRSIDs(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	dir := t.TempDir()
 	csvContent := "rs123\nrs456\nrs123\n"
 	path := writeTempFile(t, dir, "*.csv", csvContent)
@@ -401,6 +410,7 @@ func TestParseSNPsFromFile_DuplicateRSIDs(t *testing.T) {
 }
 
 func TestParseSNPsFromFile_EmptyOrMissingRSID(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	dir := t.TempDir()
 	csvContent := "rs123\n\n   \nrs456\n"
 	path := writeTempFile(t, dir, "*.csv", csvContent)

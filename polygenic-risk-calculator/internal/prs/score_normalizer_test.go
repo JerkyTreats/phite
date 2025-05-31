@@ -5,9 +5,11 @@ import "phite.io/polygenic-risk-calculator/internal/model"
 import (
 	"testing"
 	"math"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
 func TestNormalizePRS(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	tests := []struct {
 		name           string
 		prsScore       float64

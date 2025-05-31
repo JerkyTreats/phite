@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
 func TestEntrypoint_MissingRequiredArgs(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	var stdout, stderr bytes.Buffer
 	exitCode := RunCLI([]string{}, &stdout, &stderr)
 	if exitCode == 0 {
@@ -19,6 +22,7 @@ func TestEntrypoint_MissingRequiredArgs(t *testing.T) {
 }
 
 func TestEntrypoint_GenotypeFileNotFound(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	var stdout, stderr bytes.Buffer
 	args := []string{"--genotype-file", "nonexistent_file.txt", "--snps", "rs123"}
 	exitCode := RunCLI(args, &stdout, &stderr)

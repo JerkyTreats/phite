@@ -4,6 +4,7 @@ package logging
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -17,6 +18,7 @@ var (
 )
 
 // getZapLevel maps config log_level string to zapcore.Level.
+// Supports 'NONE' to silence all logs (for testing).
 func getZapLevel() zap.AtomicLevel {
 	levelStr := strings.ToUpper(config.GetString("log_level"))
 	switch levelStr {
@@ -26,6 +28,9 @@ func getZapLevel() zap.AtomicLevel {
 		return zap.NewAtomicLevelAt(zap.ErrorLevel)
 	case "WARN":
 		return zap.NewAtomicLevelAt(zap.WarnLevel)
+	case "NONE":
+		// Use zapcore.FatalLevel+1 to silence all logs
+		return zap.NewAtomicLevelAt(100) // higher than FatalLevel
 	case "INFO":
 		fallthrough
 	default:
@@ -82,4 +87,13 @@ func Sync() error {
 func resetLogger() {
 	logger = nil
 	loggerOnce = sync.Once{}
+}
+
+// SetSilentLoggingForTest sets log level to NONE for the duration of the test.
+// Call at the start of a test to suppress all logs.
+func SetSilentLoggingForTest() {
+	resetLogger()
+	config.SetConfigPath("") // clear any test config
+	os.Setenv("PHITE_LOG_LEVEL", "NONE")
+	// If config package supports env override, this will work; otherwise, set config value directly if needed.
 }

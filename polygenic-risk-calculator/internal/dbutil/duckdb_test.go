@@ -6,11 +6,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"phite.io/polygenic-risk-calculator/internal/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOpenDuckDB(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	t.Run("opens a new database connection", func(t *testing.T) {
 		tempDir := t.TempDir()
 		dbPath := filepath.Join(tempDir, "test.db")
@@ -33,6 +35,7 @@ func TestOpenDuckDB(t *testing.T) {
 }
 
 func TestValidateTable(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test_validate.db")
 
@@ -90,6 +93,7 @@ func TestValidateTable(t *testing.T) {
 }
 
 func TestWithConnection(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test_connection.db")
 
@@ -108,6 +112,7 @@ func TestWithConnection(t *testing.T) {
 }
 
 func TestMain(m *testing.M) {
+	logging.SetSilentLoggingForTest()
 	// Run tests
 	code := m.Run()
 	os.Exit(code)

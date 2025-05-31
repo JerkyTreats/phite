@@ -4,9 +4,11 @@ import (
 	"testing"
 	"phite.io/polygenic-risk-calculator/internal/model"
 	"phite.io/polygenic-risk-calculator/internal/prs"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
 func TestGenerateTraitSummaries(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	tests := []struct {
 		name      string
 		annotated []model.AnnotatedSNP

@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"phite.io/polygenic-risk-calculator/internal/logging"
 	"io"
 	"os"
@@ -17,6 +18,12 @@ import (
 )
 
 // RunCLI parses arguments and runs the entrypoint logic. Returns exit code.
+func logAndStderr(stderr io.Writer, format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	logging.Error("%s", msg)
+	fmt.Fprintln(stderr, msg)
+}
+
 func RunCLI(args []string, stdout, stderr io.Writer) int {
 	logging.Info("PHITE CLI started with args: %v", args)
 	defer func() {
@@ -55,7 +62,7 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 
 	// Check if genotype file exists
 	if _, err := os.Stat(*genotypeFile); err != nil {
-		logging.Error("genotype file not found: %s", *genotypeFile)
+		logAndStderr(stderr, "genotype file not found: %s", *genotypeFile)
 		return 1
 	}
 

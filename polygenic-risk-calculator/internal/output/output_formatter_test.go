@@ -6,11 +6,13 @@ import (
 	"testing"
 
 	"phite.io/polygenic-risk-calculator/internal/prs"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
 // prs.NormalizedPRS and PRSResult are imported from prs package.
 
 func TestOutputFormatter_JSON_ToStdout(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	norm := prs.NormalizedPRS{RawScore: 1.1, ZScore: 0.5, Percentile: 70.0}
 	prs := prs.PRSResult{PRSScore: 1.1, Details: nil}
 	summaries := []TraitSummary{{Trait: "height", NumRiskAlleles: 5, EffectWeightedContribution: 0.8, RiskLevel: "moderate"}}
@@ -26,6 +28,7 @@ func TestOutputFormatter_JSON_ToStdout(t *testing.T) {
 }
 
 func TestOutputFormatter_CSV_ToStdout(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	norm := prs.NormalizedPRS{RawScore: 2.2, ZScore: 1.5, Percentile: 95.0}
 	prs := prs.PRSResult{PRSScore: 2.2, Details: nil}
 	summaries := []TraitSummary{{Trait: "BMI", NumRiskAlleles: 3, EffectWeightedContribution: 0.6, RiskLevel: "high"}}
@@ -41,6 +44,7 @@ func TestOutputFormatter_CSV_ToStdout(t *testing.T) {
 }
 
 func TestOutputFormatter_ToFile(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	norm := prs.NormalizedPRS{RawScore: 3.3, ZScore: 2.5, Percentile: 99.0}
 	prs := prs.PRSResult{PRSScore: 3.3, Details: nil}
 	summaries := []TraitSummary{}
@@ -61,6 +65,7 @@ func TestOutputFormatter_ToFile(t *testing.T) {
 }
 
 func TestOutputFormatter_HandlesEmptyInputs(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	err := FormatOutput(prs.NormalizedPRS{}, prs.PRSResult{}, nil, nil, "json", "", nil)
 	if err != nil {
 		t.Errorf("unexpected error for empty input: %v", err)

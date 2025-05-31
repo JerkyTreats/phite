@@ -3,11 +3,14 @@ package gwas_test
 import (
 	"testing"
 	"phite.io/polygenic-risk-calculator/internal/gwas"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
 func TestFetchGWASRecords(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	dbPath := "testdata/gwas.duckdb" // Assume a test DuckDB file exists with known data
 	t.Run("fetches known rsids", func(t *testing.T) {
+		logging.SetSilentLoggingForTest()
 		rsids := []string{"rs1", "rs2"}
 		records, err := gwas.FetchGWASRecords(dbPath, rsids)
 		if err != nil {

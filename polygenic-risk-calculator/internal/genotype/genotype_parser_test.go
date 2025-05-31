@@ -9,6 +9,7 @@ import (
 
 	"phite.io/polygenic-risk-calculator/internal/genotype"
 	"phite.io/polygenic-risk-calculator/internal/model"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
 // Helper function to sort slices in ParseGenotypeDataOutput for consistent comparison
@@ -19,6 +20,7 @@ func sortOutput(output *genotype.ParseGenotypeDataOutput) {
 }
 
 func TestParseGenotypeData(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	// Define a common set of requested RSIDs and mock GWAS data for tests
 	baseRequestedRSIDs := []string{"rs1001", "rs1002", "rs1003", "rs1004", "rs2001", "rs2002", "rs9999"}
 	mockGWASData := map[string]model.GWASSNPRecord{

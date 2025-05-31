@@ -2,9 +2,11 @@ package reference
 
 import (
 	"testing"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
 func TestLoadReferenceStatsFromDuckDB(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	dbPath := "testdata/reference_stats.duckdb" // Assume this file exists for tests
 
 	t.Run("loads valid stats", func(t *testing.T) {

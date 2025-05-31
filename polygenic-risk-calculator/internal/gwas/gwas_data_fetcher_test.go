@@ -4,10 +4,13 @@ import (
 	"testing"
 	"phite.io/polygenic-risk-calculator/internal/model"
 	"reflect"
+
+	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
 
 func TestFetchAndAnnotateGWAS_BasicAnnotation(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	input := GWASDataFetcherInput{
 		ValidatedSNPs: []model.ValidatedSNP{
 			{RSID: "rs1", Genotype: "AA", FoundInGWAS: true},
@@ -29,6 +32,7 @@ func TestFetchAndAnnotateGWAS_BasicAnnotation(t *testing.T) {
 }
 
 func TestFetchAndAnnotateGWAS_MissingGWAS(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	input := GWASDataFetcherInput{
 		ValidatedSNPs: []model.ValidatedSNP{
 			{RSID: "rs3", Genotype: "TT", FoundInGWAS: false},
@@ -42,6 +46,7 @@ func TestFetchAndAnnotateGWAS_MissingGWAS(t *testing.T) {
 }
 
 func TestFetchAndAnnotateGWAS_MultipleAssociations(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	input := GWASDataFetcherInput{
 		ValidatedSNPs: []model.ValidatedSNP{
 			{RSID: "rs4", Genotype: "CC", FoundInGWAS: true},
@@ -58,6 +63,7 @@ func TestFetchAndAnnotateGWAS_MultipleAssociations(t *testing.T) {
 }
 
 func TestFetchAndAnnotateGWAS_AmbiguousGenotype(t *testing.T) {
+	logging.SetSilentLoggingForTest()
 	input := GWASDataFetcherInput{
 		ValidatedSNPs: []model.ValidatedSNP{
 			{RSID: "rs5", Genotype: "NN", FoundInGWAS: true},
