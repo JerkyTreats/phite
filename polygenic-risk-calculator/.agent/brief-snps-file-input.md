@@ -10,11 +10,13 @@ Enable the polygenic-risk-calculator CLI to accept SNP rsids from a file, suppor
     - One rsid per line (no header), **or**
     - A header row with a column labeled `rsid` (case-insensitive), in any position; rsids are extracted from that column in all subsequent rows. Other columns are ignored.
       - Example:
+
         ```csv
         effect,rsid,pval
         0.12,rs123,0.01
         0.08,rs456,0.02
         ```
+
       - The parser must extract `rs123` and `rs456` from the `rsid` column regardless of its position.
   - **JSON**: File is a JSON array of strings, e.g. `["rs123", "rs456"]`.
 - If both `--snps` and `--snps-file` are provided, return an error and usage message.

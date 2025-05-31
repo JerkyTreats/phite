@@ -134,73 +134,73 @@ The following files and functions currently lack required logging and must be up
 ### CLI Entrypoint
 
 - **cmd/risk-calculator/main.go**
-  - `RunCLI`:  
+  - `RunCLI`:
     - Add INFO logs for: CLI start, argument parsing, file loads, major pipeline stages (GWAS load, genotype parse, PRS calculation, output).
     - Add ERROR logs for: flag errors, missing/invalid files, failed loads/parses, output errors.
-  - `main`:  
+  - `main`:
     - Add INFO log for CLI invocation.
 
 ### SNP Input
 
 - **internal/snps/snps_file_parser.go**
-  - `ParseSNPsFromFile`:  
+  - `ParseSNPsFromFile`:
     - INFO: File opened, format detected, SNPs parsed.
     - ERROR: Unsupported extension, file open errors, parse errors.
-  - `parseJSON`, `parseCSV`, `parseTSV`, `parseDelimited`:  
+  - `parseJSON`, `parseCSV`, `parseTSV`, `parseDelimited`:
     - ERROR: Malformed input, empty rsids, null bytes.
 
 ### Genotype Parsing
 
 - **internal/genotype/genotype_parser.go**
-  - `ParseGenotypeData`:  
+  - `ParseGenotypeData`:
     - INFO: File opened, format detected, SNPs validated.
     - ERROR: File open errors, unknown format, validation errors.
 
 ### GWAS Data
 
 - **internal/gwas/gwas_data_fetcher.go**
-  - `FetchAndAnnotateGWAS`:  
+  - `FetchAndAnnotateGWAS`:
     - INFO: Annotation started/completed.
     - ERROR: No GWAS association found (if actionable).
 
 - **internal/gwas/gwas_duckdb_loader.go**
-  - `FetchGWASRecords`:  
+  - `FetchGWASRecords`:
     - INFO: DuckDB opened, query executed, records loaded.
     - ERROR: DB open errors, table validation, query/scan errors.
 
 ### Reference Stats
 
 - **internal/reference/reference_stats_loader.go**
-  - `LoadReferenceStatsFromDuckDB`:  
+  - `LoadReferenceStatsFromDuckDB`:
     - INFO: Reference stats loaded, no stats found.
     - ERROR: DB open errors, table validation, scan errors.
 
 ### PRS Calculation
 
 - **internal/prs/prs_calculator.go**
-  - `CalculatePRS`:  
+  - `CalculatePRS`:
     - INFO: PRS calculation started/completed.
 
 - **internal/prs/score_normalizer.go**
-  - `NormalizePRS`:  
+  - `NormalizePRS`:
     - INFO: Normalization started/completed.
     - ERROR: Invalid stats, math errors.
 
 ### Output
 
 - **internal/output/output_formatter.go**
-  - `FormatOutput`:  
+  - `FormatOutput`:
     - INFO: Output started, format selected, file written.
     - ERROR: Unsupported format, file write errors, encoding errors.
 
 - **internal/output/trait_summary_generator.go**
-  - `GenerateTraitSummaries`:  
+  - `GenerateTraitSummaries`:
     - INFO: Trait summaries generated.
 
 ### DuckDB Utilities
 
 - **internal/dbutil/duckdb.go**
-  - `OpenDuckDB`, `WithConnection`, `ValidateTable`, `IsTableEmpty`, `TableExists`, `ExecInTransaction`, `CloseDB`:  
+  - `OpenDuckDB`, `WithConnection`, `ValidateTable`, `IsTableEmpty`, `TableExists`, `ExecInTransaction`, `CloseDB`:
     - INFO: DB connections opened/closed, validations passed.
     - ERROR: Connection errors, table/column errors, transaction failures.
 
@@ -210,4 +210,3 @@ The following files and functions currently lack required logging and must be up
 - For each function above, add INFO logs for successful major steps and ERROR logs for all error/exceptional conditions.
 - Use the centralized logger (`internal/logging`), never `fmt.Println` or `log`.
 - See the standards section for message style and examples.
-

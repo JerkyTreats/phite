@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
-	"phite.io/polygenic-risk-calculator/internal/logging"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
 // ParseSNPsFromFile parses a list of rsids from a file (CSV or JSON).
@@ -29,7 +30,7 @@ func ParseSNPsFromFile(path string) ([]string, error) {
 			supported = append(supported, k)
 		}
 		logging.Error("unsupported file extension: %s (supported: %v)", ext, supported)
-	return nil,  errors.New("unsupported file extension")
+		return nil, errors.New("unsupported file extension")
 	}
 
 	logging.Info("Opening SNP file: %s", path)
@@ -112,7 +113,7 @@ func parseDelimited(r io.Reader, sep rune) ([]string, error) {
 			}
 			if rsidColIdx == -1 {
 				logging.Error("header does not contain 'rsid' column in delimited SNP file")
-			return nil, errors.New("header does not contain 'rsid' column")
+				return nil, errors.New("header does not contain 'rsid' column")
 			}
 			continue
 		}
@@ -154,9 +155,4 @@ func parseDelimited(r io.Reader, sep rune) ([]string, error) {
 
 func splitDelimited(line string, sep rune) []string {
 	return strings.Split(line, string(sep))
-}
-
-// splitCSV splits a CSV line on commas, handling simple cases (no quoted fields)
-func splitCSV(line string) []string {
-	return strings.Split(line, ",")
 }
