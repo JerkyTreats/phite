@@ -41,6 +41,48 @@ Welcome to the PHITE polygenic risk calculator project. This document provides c
   - Use context.Context where appropriate for cancellation and deadlines.
   - Validate all external input and handle malformed data safely.
 
+## Logging Standards
+
+All logging in PHITE must use the centralized logger (`internal/logging`). Do not use `fmt.Println` or the standard library `log` for application output.
+
+### INFO Level
+- **Purpose:** Record high-level, user-meaningful events and successful operations.
+- **When to log:**
+  - Start and completion of major processing steps (e.g., file loaded, analysis started/finished).
+  - Successful external resource loads (e.g., config, data, models).
+  - User actions (e.g., command-line invocation, parameter parsing).
+- **How to log:** Use clear, concise, and structured messages. Include relevant context (file name, operation, user input).
+- **Examples:**
+  ```go
+  logging.Info("Loaded GWAS summary statistics from %s", filePath)
+  logging.Info("PRS calculation completed for %d samples", sampleCount)
+  logging.Info("User selected output format: %s", format)
+  ```
+
+### ERROR Level
+- **Purpose:** Record failures, exceptions, and conditions requiring user or operator intervention.
+- **When to log:**
+  - Any operation that fails and is not handled by retry or fallback.
+  - Invalid or missing input data/configuration.
+  - External system or dependency failures.
+- **How to log:** Clearly state what failed and why. Include error details and context.
+- **Examples:**
+  ```go
+  logging.Error("Failed to load config from %s: %v", path, err)
+  logging.Error("PRS calculation aborted: missing required SNP data")
+  logging.Error("Could not write output file %s: %v", outPath, err)
+  ```
+
+### DEBUG Level
+- **Purpose:** For developer diagnostics and deep troubleshooting.
+- **Standard:** Use case-by-case; not required for ordinary operation.
+
+#### Additional Guidance
+- **Never log sensitive data** (e.g., user genotypes, private information).
+- **Keep messages actionable**—they should help users or developers understand what happened and what to do next.
+- **INFO and ERROR logs** should be sufficient for most operational monitoring and user support.
+
+
 ## Commenting Style
 - Use GoDoc conventions for all exported symbols:
   - Start comments with the name of the item being described.
