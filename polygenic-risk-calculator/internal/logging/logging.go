@@ -43,7 +43,7 @@ func initLogger() {
 	loggerOnce.Do(func() {
 		cfg := zap.NewDevelopmentConfig()
 		cfg.Level = getZapLevel()
-		l, err := cfg.Build()
+		l, err := cfg.Build(zap.AddCaller(), zap.AddCallerSkip(1))
 		if err != nil {
 			panic(fmt.Sprintf("failed to build logger: %v", err))
 		}
