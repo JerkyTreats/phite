@@ -2,6 +2,8 @@
 
 gwas/data/
 
+# /cmd/risk-calculator/risk-calculator
+
 # Binaries for programs and plugins
 *.exe
 *.dll
