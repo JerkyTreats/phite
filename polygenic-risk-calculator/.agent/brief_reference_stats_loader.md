@@ -52,6 +52,7 @@ The loader expects a DuckDB table named `reference_stats` with the following req
 > **Note:** This schema definition should be referenced as input when writing the schema creation brief for the reference stats table.
 
 ## Example Usage
+
 ```go
 ref, err := reference.LoadReferenceStatsFromDuckDB(dbPath, ancestry, trait, model)
 if err != nil {

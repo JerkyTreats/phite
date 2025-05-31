@@ -15,7 +15,7 @@ Welcome to the PHITE polygenic risk calculator project. This document provides c
 | GWAS DuckDB Loader                | Complete   |
 | Output Formatter                  | Complete   |
 | PRS Calculator                    | Complete   |
-| Reference Stats Loader            | To Do      |
+| Reference Stats Loader            | Complete   |
 | Score Normalizer                  | Complete   |
 | Trait Summary Generator           | Complete   |
 
