@@ -45,21 +45,21 @@ FROM read_csv_auto('gwas_catalog_trait-mappings_r2025-05-13.tsv', delim='\t', he
 WHERE "EFO URI" IS NOT NULL;
 
 
--- STEP 4: SNP-to-Topic Join (if snp_trait_link exists)
--- Joins each SNP to its associated trait's high-level topic
-CREATE OR REPLACE TABLE snp_trait_topics AS
-SELECT
-    l.rsid,
-    m.topic_uri
-FROM snp_trait_link l
-JOIN trait_topic_map m
-  ON l.trait_id = m.trait_uri;
+-- -- STEP 4: SNP-to-Topic Join (if snp_trait_link exists)
+-- -- Joins each SNP to its associated trait's high-level topic
+-- CREATE OR REPLACE TABLE snp_trait_topics AS
+-- SELECT
+--     l.rsid,
+--     m.topic_uri
+-- FROM snp_trait_link l
+-- JOIN trait_topic_map m
+--   ON l.trait_id = m.trait_uri;
 
--- STEP 5: (Optional) Enrich snp_trait_topics with topic label
-CREATE OR REPLACE TABLE snp_trait_topics_labeled AS
-SELECT
-    s.rsid,
-    s.topic_uri,
-    c.parent_label AS topic_label
-FROM snp_trait_topics s
-JOIN trait_concepts c ON s.topic_uri = c.parent_uri;
+-- -- STEP 5: (Optional) Enrich snp_trait_topics with topic label
+-- CREATE OR REPLACE TABLE snp_trait_topics_labeled AS
+-- SELECT
+--     s.rsid,
+--     s.topic_uri,
+--     c.parent_label AS topic_label
+-- FROM snp_trait_topics s
+-- JOIN trait_concepts c ON s.topic_uri = c.parent_uri;

@@ -1,0 +1,19 @@
+# Ignore downloaded reference panel metadata and VCF files
+/data/
+/gnomad_grch38_vcf/
+
+# Ignore DuckDB database
+/gwas.duckdb
+
+# Ignore Python virtual environments
+/.venv_reference_panel/
+
+# Ignore other common data artifacts
+*.bgz
+*.bgz.tbi
+*.tsv
+*.tsv.gz
+*.tsv.bgz
+*.vcf
+*.vcf.bgz
+*.vcf.bgz.tbi
