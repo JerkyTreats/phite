@@ -1,0 +1,4 @@
+rsid	chrom	pos	genotype
+rs1	1	1000	AG
+rs2	1	2000	AA
+rs3	1	3000	TT

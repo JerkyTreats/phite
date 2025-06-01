@@ -1,6 +1,7 @@
 package reference
 
 import (
+	"fmt"
 	"strings"
 
 	"phite.io/polygenic-risk-calculator/internal/logging"
@@ -19,8 +20,11 @@ type ReferenceStats struct {
 }
 
 // LoadReferenceStatsFromDuckDB loads reference stats for given ancestry, trait, and model from DuckDB.
-func LoadReferenceStatsFromDuckDB(dbPath, ancestry, trait, model string) (*ReferenceStats, error) {
+func LoadReferenceStatsFromDuckDB(dbPath, table, ancestry, trait, model string) (*ReferenceStats, error) {
 	logging.Debug("Loading reference stats for ancestry=%s, trait=%s, model=%s", ancestry, trait, model)
+	if table == "" {
+		table = "reference_panel"
+	}
 	logging.Info("Opening DuckDB at %s", dbPath)
 	db, err := dbutil.OpenDuckDB(dbPath)
 	if err != nil {
@@ -29,13 +33,13 @@ func LoadReferenceStatsFromDuckDB(dbPath, ancestry, trait, model string) (*Refer
 	}
 	defer db.Close()
 
-	err = dbutil.ValidateTable(db, "reference_stats", []string{"mean", "std", "min", "max", "ancestry", "trait", "model"})
+	err = dbutil.ValidateTable(db, table, []string{"mean", "std", "min", "max", "ancestry", "trait", "model"})
 	if err != nil {
-		logging.Error("reference_stats table validation failed: %v", err)
+		logging.Error("%s table validation failed: %v", table, err)
 		return nil, err
 	}
 
-	query := `SELECT mean, std, min, max, ancestry, trait, model FROM reference_stats WHERE ancestry = ? AND trait = ? AND model = ? LIMIT 1`
+	query := fmt.Sprintf(`SELECT mean, std, min, max, ancestry, trait, model FROM %s WHERE ancestry = ? AND trait = ? AND model = ? LIMIT 1`, table)
 	row := db.QueryRow(query, ancestry, trait, model)
 
 	var stats ReferenceStats
@@ -60,5 +64,5 @@ func LoadDefaultReferenceStats(dbPath string) (*ReferenceStats, error) {
 		defaultTrait    = "height"
 		defaultModel    = "v1"
 	)
-	return LoadReferenceStatsFromDuckDB(dbPath, defaultAncestry, defaultTrait, defaultModel)
+	return LoadReferenceStatsFromDuckDB(dbPath, "reference_panel", defaultAncestry, defaultTrait, defaultModel)
 }

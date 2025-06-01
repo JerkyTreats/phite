@@ -14,14 +14,14 @@ import (
 
 // Options is the canonical representation of all runtime parameters.
 type Options struct {
-	GenotypeFile string
-	SNPs         []string
-	SNPsFile     string
-	GWASDB       string
-	GWASTable    string
-	Output       string
-	Format       string
-	ReferenceDB  string
+	GenotypeFile   string
+	SNPs           []string
+	SNPsFile       string
+	GWASDB         string
+	GWASTable      string
+	Output         string
+	Format         string
+	ReferenceTable string // reference stats table name (default: reference_panel)
 }
 
 // ParseOptions parses CLI flags and resolves each parameter from CLI/env/config/default.
@@ -38,7 +38,7 @@ func ParseOptions(args []string) (Options, error) {
 	flags.StringVar(&opts.GWASTable, "gwas-table", "", "GWAS table name (optional)")
 	flags.StringVar(&opts.Output, "output", "", "Output file path (optional)")
 	flags.StringVar(&opts.Format, "format", "", "Output format (optional)")
-	flags.StringVar(&opts.ReferenceDB, "reference-db", "", "Path to reference stats DB (optional)")
+	flags.StringVar(&opts.ReferenceTable, "reference-table", "reference_panel", "Reference stats table name (optional, default: reference_panel)")
 
 	if err := flags.Parse(args); err != nil {
 		return opts, err
@@ -54,8 +54,8 @@ func ParseOptions(args []string) (Options, error) {
 	if opts.Format == "" {
 		opts.Format = config.GetString("format")
 	}
-	if opts.ReferenceDB == "" {
-		opts.ReferenceDB = config.GetString("reference_db")
+	if opts.GWASDB == "" {
+		opts.GWASDB = config.GetString("reference_db")
 	}
 
 	// GWAS Database with Validation

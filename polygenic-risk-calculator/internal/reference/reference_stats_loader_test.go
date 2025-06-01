@@ -10,7 +10,7 @@ func TestLoadReferenceStatsFromDuckDB(t *testing.T) {
 	dbPath := "testdata/reference_stats.duckdb" // Assume this file exists for tests
 
 	t.Run("loads valid stats", func(t *testing.T) {
-		ref, err := LoadReferenceStatsFromDuckDB(dbPath, "EUR", "height", "v1")
+		ref, err := LoadReferenceStatsFromDuckDB(dbPath, "reference_panel", "EUR", "height", "v1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -23,7 +23,7 @@ func TestLoadReferenceStatsFromDuckDB(t *testing.T) {
 	})
 
 	t.Run("returns nil if no match", func(t *testing.T) {
-		ref, err := LoadReferenceStatsFromDuckDB(dbPath, "AFR", "height", "v1")
+		ref, err := LoadReferenceStatsFromDuckDB(dbPath, "reference_panel", "AFR", "height", "v1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -33,7 +33,7 @@ func TestLoadReferenceStatsFromDuckDB(t *testing.T) {
 	})
 
 	t.Run("malformed or missing DB returns error", func(t *testing.T) {
-		_, err := LoadReferenceStatsFromDuckDB("/nonexistent/path.duckdb", "EUR", "height", "v1")
+		_, err := LoadReferenceStatsFromDuckDB("/nonexistent/path.duckdb", "reference_panel", "EUR", "height", "v1")
 		if err == nil {
 			t.Errorf("expected error for missing db file")
 		}
