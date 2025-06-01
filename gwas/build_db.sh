@@ -18,15 +18,7 @@ duckdb gwas.duckdb <<'EOF'
 .read sql/create_table_associations_clean.sql
 .read sql/create_table_studies_clean.sql
 .read sql/create_table_traits.sql
-.read sql/create_table_reference_panel.sql
-.read sql/create_table_reference_stats.sql
 EOF
 
-echo "🚀 Running reference panel setup (Python + venv) ..."
-bash scripts/setup_reference_panel.sh
-echo "✅ Reference panel setup complete."
 
-echo "🚀 Running VCF download setup (Python + venv) ..."
-bash scripts/setup_vcf_download.sh
-echo "✅ VCF download complete."
-echo "✅ Rebuild complete: gwas/gwas.duckdb"
+echo " Rebuild complete: gwas/gwas.duckdb"

@@ -1,5 +1,9 @@
 # Reference Stats Data Schema Overview
 
+> **Deprecation Notice (June 2025):**
+> 
+> All local reference panel workflows (sample metadata and VCF ingestion into DuckDB) are now deprecated. Users should use the Google BigQuery public gnomAD datasets (`bigquery-public-data.gnomad`) for all reference data queries. Local scripts and schemas for reference panel ingestion are no longer maintained or recommended for use. This change enables scalable, cloud-native analysis without the need for large local downloads or storage.
+
 This document provides a holistic overview of the reference statistics (reference_stats) data schema and requirements for the PHITE GWAS/PRS system. It is intended to complement the detailed implementation briefs in this directory by describing the overall feature, its motivation, and how the various components fit together.
 
 ## Purpose

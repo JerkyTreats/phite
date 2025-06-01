@@ -10,19 +10,16 @@
 
 ---
 
-
 **Project:** GWAS Database (gwas.duckdb) — Reference Panel and Stats Ingestion
 
 ---
 
 ## Objective
-Provide a reproducible, script-driven workflow to download the HGDP + 1000 Genomes (gnomAD v3.1.2, GRCh38) reference panel and VCF data, and insert ancestry/sample metadata into the DuckDB database. This enables downstream calculation of PRS reference statistics for polygenic risk normalization using the GRCh38 genome build.
+**Deprecated:** As of June 2025, the local ingestion of gnomAD sample metadata and VCF files into DuckDB is no longer recommended or maintained. Instead, users should leverage the Google BigQuery public gnomAD tables for all reference data queries. This approach is vastly more scalable, cost-effective, and does not require downloading or processing terabytes of data locally.
 
-All scripts/tools produced from this brief must:
-- Be runnable on a new computer with only base developer tools (bash, wget, python, etc.)
-- Require no manual intervention (fully automated, idempotent)
-- Be referenced and invoked by `build_db.sh` as the single entry point for database and data setup
+All local reference panel scripts, schemas, and ingestion workflows are deprecated. For population frequencies, variant annotation, or reference queries, use the BigQuery public dataset: `bigquery-public-data.gnomad`.
 
+See the README for migration and usage instructions.
 
 ---
 
