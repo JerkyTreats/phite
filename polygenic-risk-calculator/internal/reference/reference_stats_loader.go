@@ -1,8 +1,9 @@
 package reference
 
 import (
-	"phite.io/polygenic-risk-calculator/internal/logging"
 	"strings"
+
+	"phite.io/polygenic-risk-calculator/internal/logging"
 
 	"phite.io/polygenic-risk-calculator/internal/dbutil"
 )
@@ -19,6 +20,7 @@ type ReferenceStats struct {
 
 // LoadReferenceStatsFromDuckDB loads reference stats for given ancestry, trait, and model from DuckDB.
 func LoadReferenceStatsFromDuckDB(dbPath, ancestry, trait, model string) (*ReferenceStats, error) {
+	logging.Debug("Loading reference stats for ancestry=%s, trait=%s, model=%s", ancestry, trait, model)
 	logging.Info("Opening DuckDB at %s", dbPath)
 	db, err := dbutil.OpenDuckDB(dbPath)
 	if err != nil {
@@ -60,4 +62,3 @@ func LoadDefaultReferenceStats(dbPath string) (*ReferenceStats, error) {
 	)
 	return LoadReferenceStatsFromDuckDB(dbPath, defaultAncestry, defaultTrait, defaultModel)
 }
-

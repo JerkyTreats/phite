@@ -39,7 +39,7 @@ func FetchAndAnnotateGWAS(input GWASDataFetcherInput) GWASDataFetcherOutput {
 			}
 		}
 		if !found {
-			logging.Info("No GWAS association found for SNP: %s", snp.RSID)
+			// logging.Info("No GWAS association found for SNP: %s", snp.RSID)
 		}
 	}
 	logging.Info("GWAS annotation complete: %d SNPs annotated", len(result.AnnotatedSNPs))

@@ -101,7 +101,7 @@ func ParseGenotypeData(input ParseGenotypeDataInput) (ParseGenotypeDataOutput, e
 			}
 			output.ValidatedSNPs = append(output.ValidatedSNPs, model.ValidatedSNP{RSID: rsid, Genotype: geno, FoundInGWAS: foundInGWAS})
 		} else {
-			logging.Info("requested SNP %s not found or invalid in genotype file", rsid)
+			// logging.Info("requested SNP %s not found or invalid in genotype file", rsid)
 			output.SNPsMissing = append(output.SNPsMissing, rsid)
 		}
 	}
