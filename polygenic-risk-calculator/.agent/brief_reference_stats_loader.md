@@ -1,43 +1,74 @@
-# Agent Brief: PRS Reference Stats Loader (Optional)
+# Agent Brief: PRS Reference Stats Loader
 
-> **Note:** The DuckDB database used by this loader is provided by the external shared GWAS database (`../gwas/gwas.duckdb`), which is managed separately. For data engineering and schema creation, see briefs in `gwas/.agent/`.
+> **Note:** BigQuery is the only supported backend for population reference statistics. For backend implementation and configuration details, see the [BigQuery Reference Panel brief](bigquery.md).
 
 ## Purpose
-Provide a mechanism for loading population-level reference statistics (mean, std, min, max) from a DuckDB database used for normalizing polygenic risk scores. Reference data is **optional**—if not provided, only the raw PRS will be output.
+Provide a unified, production-ready interface for loading population-level reference statistics (mean, std, min, max, ancestry, trait, model) required for PRS normalization. Reference stats are **required** for meaningful interpretation; outputting raw PRS is a degraded/fallback mode.
+
+## Separation of Concerns & Overlap
+- **This loader** is the orchestration/interface layer: it defines the API for retrieving reference stats and integrates with the rest of the PRS pipeline.
+- **The BigQuery backend** (see [bigquery.md](bigquery.md)) encapsulates all connection, authentication, configuration, and query logic for interacting with the gnomAD reference data in BigQuery.
+- **Boundary:** The loader should not duplicate or subsume backend logic (e.g., SQL construction, credential handling). Instead, it delegates to the BigQuery Clientset for all data access.
+- **Cross-reference:** Any changes to schema, query patterns, or authentication must be implemented in the BigQuery backend and surfaced via the loader interface.
 
 ## Responsibilities
-- Use DuckDB Shared Utilities for connection/session management and schema validation.
-- Connect to a DuckDB database at a specified file path.
-- Query the reference stats table for mean, std, min, max (and optionally ancestry, trait, model).
-- If reference stats are not provided, allow the pipeline to proceed with raw PRS output only.
-- Validate the presence and format of reference stats if supplied.
-- Provide reference stats as Go structs to downstream components.
-- Support extensibility for additional statistics if needed.
+- Expose a single, robust interface for retrieving reference stats from BigQuery.
+- **All configuration must be routed through the centralized config system as defined in `config.go`. No implementation may create its own config loader, environment variable parser, or CLI flag system.**
+- Validate input parameters (ancestry, trait, model, etc.) and propagate errors from the backend.
+- Handle orchestration logic: e.g., fallback to raw PRS if stats unavailable, log/report errors, and ensure downstream components receive the correct struct or error.
+- Do **not** implement or maintain local database logic (e.g., DuckDB) for reference stats.
+- Reference and depend on the BigQuery Clientset as defined in [bigquery.md](bigquery.md).
 
 ## Inputs
-- DuckDB file path (from CLI argument `--gwas-db` or `--reference-db`)
-- (Optional) Ancestry, trait, or model identifier to select appropriate reference stats.
+- BigQuery config (must be provided via the centralized config system in `config.go`; see [bigquery.md](bigquery.md) for required fields)
+- ancestry, trait, or model identifier (as needed for filtering)
 
 ## Outputs
-- `referenceStats` struct (mean, std, min, max, ancestry, trait, model) if available.
-- Nil or empty if not available.
+- `ReferenceStats` struct (mean, std, min, max, ancestry, trait, model) if found
+- Nil/empty if not available (with clear error/warning)
 
 ## Consumed By
-- PRS Score Normalizer
+- PRS Score Normalizer (for normalization)
 - Entrypoint (for orchestration)
+- Main pipeline orchestrator (`internal/pipeline/pipeline.go`)
 
-## Related Briefs
-- [DuckDB Shared Utilities and Coordination](brief_duckdb_shared_utilities.md)
+## Integration
+- The main pipeline in `internal/pipeline/pipeline.go` is the primary consumer of the reference stats loader. This file must be updated and uploaded whenever the loader interface or output struct changes.
+- See [bigquery.md](bigquery.md) for backend implementation details.
+
+## Performance Notes
+- A BigQuery reference stats query (per trait/ancestry/model) is expected to take 0.5–3 seconds, depending on BQ load and partitioning.
+- The returned `ReferenceStats` object is small (~100–200 bytes per trait).
+
+## Interfaces
+```go
+// Loads reference stats from BigQuery via the backend Clientset.
+func LoadReferenceStats(ctx context.Context, config ReferenceStatsConfig, ancestry, trait, model string) (*ReferenceStats, error)
+```
+- `ReferenceStatsConfig` must encapsulate all BigQuery connection parameters; see [bigquery.md](bigquery.md) for required fields.
+- All backend logic is delegated to the BigQuery Clientset (see [bigquery.md](bigquery.md)).
+
+## Error Handling
+- Fail early and clearly on missing/malformed config or schema
+- Surface BigQuery-specific errors with actionable messages
+- If stats are not found, return nil and allow pipeline to continue (with warning)
+
+## Extensibility
+- Loader must remain agnostic to backend implementation details; all changes to schema, query, or authentication must be isolated to the BigQuery backend.
+- Design for future support of additional summary statistics or alternative cloud-native backends (reference all such changes in both briefs).
+
+## See Also
+- [BigQuery Reference Panel brief](bigquery.md) — for backend implementation, schema, and configuration
 
 ## Required Tests
-- Loads valid reference stats file/config if provided.
-- Fails gracefully with clear errors on malformed files.
-- Allows pipeline to proceed with raw PRS if no reference stats are provided.
-- Provides correct Go structs for downstream use.
+- Loads valid reference stats from DuckDB (and BQ, when implemented)
+- Fails gracefully and logs clear errors on malformed/missing files or config
+- Allows pipeline to proceed with raw PRS if no stats are found
+- Provides correct Go structs for downstream use
+- Covers all CLI/config permutations and error paths
 
-## Required DuckDB Table Schema
-
-The loader expects a DuckDB table named `reference_stats` with the following required columns. This schema must be present in the database for the loader to function correctly. Schema creation is handled in a separate brief.
+## Required Table Schema
+The backend must provide a table named `reference_stats` (or equivalent) with the following columns:
 
 | Column    | Type    | Description                                   |
 |-----------|---------|-----------------------------------------------|
@@ -49,14 +80,13 @@ The loader expects a DuckDB table named `reference_stats` with the following req
 | trait     | TEXT    | (Optional) Trait or phenotype name            |
 | model     | TEXT    | (Optional) PRS model identifier/version       |
 
-> **Note:** This schema definition should be referenced as input when writing the schema creation brief for the reference stats table.
+> **Note:** Map or transform columns as needed if backend schema differs.
 
 ## Example Usage
-
 ```go
-ref, err := reference.LoadReferenceStatsFromDuckDB(dbPath, ancestry, trait, model)
+ref, err := reference.LoadReferenceStats(ctx, config, ancestry, trait, model)
 if err != nil {
-    // handle error, or proceed with raw PRS only
+    // handle error or proceed with raw PRS only
 }
 if ref != nil {
     norm, err := prs.NormalizePRS(prsResult, *ref)
@@ -65,3 +95,15 @@ if ref != nil {
     // Output raw PRS only
 }
 ```
+
+## Related Briefs
+- [BigQuery Reference Panel](bigquery.md)
+- [DuckDB Shared Utilities](brief_duckdb_shared_utilities.md)
+- [Data Model](../data_model.md)
+
+## Checklist
+- [ ] Supports DuckDB and future BigQuery
+- [ ] CLI/config/env for all connection params
+- [ ] Adheres to error handling and test requirements
+- [ ] Table schema matches canonical columns or is mapped
+- [ ] TDD: all code covered by tests
