@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"phite.io/polygenic-risk-calculator/internal/clientsets/bigquery"
 	"phite.io/polygenic-risk-calculator/internal/genotype"
@@ -113,7 +114,11 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 		defer backend.Close()
 		refBackend := reference.NewReferenceStatsLoader(backend)
 		defer refBackend.Close()
-		refStats, _ := refBackend.GetReferenceStats(ctx, input.Ancestry, trait, input.Model)
+		refStats, err := refBackend.GetReferenceStats(ctx, input.Ancestry, trait, input.Model)
+		if err != nil {
+			logging.Error("Failed to get reference stats for trait %s (ancestry: %s, model: %s): %v", trait, input.Ancestry, input.Model, err)
+			return PipelineOutput{}, fmt.Errorf("failed to get reference stats for trait %s: %w", trait, err)
+		}
 		// Normalize PRS
 		var norm prs.NormalizedPRS
 		if refStats != nil {

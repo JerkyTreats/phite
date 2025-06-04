@@ -40,9 +40,11 @@ func NewReferenceStatsLoader(client *bigqueryclientset.Client) *ReferenceStatsLo
 func (r *ReferenceStatsLoader) GetReferenceStats(ctx context.Context, ancestry, trait, model string) (*ReferenceStats, error) {
 	logging.Info("Querying reference stats from BigQuery: ancestry=%s, trait=%s, model=%s", ancestry, trait, model)
 
-	q := r.client.BigQuery().Query(
-		fmt.Sprintf("SELECT mean, std, min, max, ancestry, trait, model FROM `%s.%s.%s` WHERE ancestry = @ancestry AND trait = @trait AND model = @model LIMIT 1",
-			r.client.ProjectID, r.client.Dataset, r.client.Table))
+	sqlQuery := fmt.Sprintf("SELECT mean, std, min, max, ancestry, trait, model FROM `%s.%s.%s` WHERE ancestry = @ancestry AND trait = @trait AND model = @model LIMIT 1",
+		r.client.ProjectID, r.client.Dataset, r.client.Table)
+	logging.Debug("Executing BigQuery SQL: %s", sqlQuery)
+	q := r.client.BigQuery().Query(sqlQuery)
+
 	q.Parameters = []bigquery.QueryParameter{
 		{Name: "ancestry", Value: ancestry},
 		{Name: "trait", Value: trait},

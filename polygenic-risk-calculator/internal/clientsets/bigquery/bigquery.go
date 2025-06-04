@@ -15,7 +15,8 @@ import (
 // Client encapsulates config, connection, and query logic for reference stats in BigQuery.
 
 func init() {
-	config.RegisterRequiredKey("bq_project")
+	config.RegisterRequiredKey("bq_project") // Project where the data resides
+	config.RegisterRequiredKey("bq_billing_project") // Project used for API calls and billing
 	config.RegisterRequiredKey("bq_dataset")
 	config.RegisterRequiredKey("bq_table")
 	// bq_credentials is optional
@@ -31,7 +32,8 @@ type Client struct {
 
 // NewClient initializes a BigQuery client using config.go.
 func NewClient(ctx context.Context) (*Client, error) {
-	project := config.GetString("bq_project")
+	billingProject := config.GetString("bq_billing_project")
+	dataProject := config.GetString("bq_project") // This is the project where the data actually lives
 	dataset := config.GetString("bq_dataset")
 	table := config.GetString("bq_table")
 	creds := config.GetString("bq_credentials")
@@ -40,19 +42,19 @@ func NewClient(ctx context.Context) (*Client, error) {
 	var client *bigquery.Client
 	var err error
 	if creds != "" {
-		logging.Info("Creating BigQuery client with credentials file: %s", creds)
-		client, err = bigquery.NewClient(ctx, project, option.WithCredentialsFile(creds))
+		logging.Info("Creating BigQuery client with credentials file '%s' for billing project '%s'", creds, billingProject)
+		client, err = bigquery.NewClient(ctx, billingProject, option.WithCredentialsFile(creds))
 	} else {
-		logging.Info("Creating BigQuery client with default credentials for project: %s", project)
-		client, err = bigquery.NewClient(ctx, project)
+		logging.Info("Creating BigQuery client with default credentials for billing project: %s", billingProject)
+		client, err = bigquery.NewClient(ctx, billingProject)
 	}
 	if err != nil {
-		logging.Error("Failed to create BigQuery client for project %s: %v", project, err)
-		return nil, fmt.Errorf("failed to create BigQuery client: %w", err)
+		logging.Error("Failed to create BigQuery client for billing project %s: %v", billingProject, err)
+		return nil, fmt.Errorf("failed to create BigQuery client for billing project %s: %w", billingProject, err)
 	}
-	logging.Info("BigQuery client created for project=%s, dataset=%s, table=%s", project, dataset, table)
+	logging.Info("BigQuery client configured for data project=%s, dataset=%s, table=%s (using billing project %s)", dataProject, dataset, table, billingProject)
 	return &Client{
-		ProjectID: project,
+		ProjectID: dataProject, // This remains the project where the data is located
 		Dataset:   dataset,
 		Table:     table,
 		CredsPath: creds,
