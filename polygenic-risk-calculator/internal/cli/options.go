@@ -13,6 +13,8 @@ import (
 )
 
 // Options is the canonical representation of all runtime parameters.
+
+
 type Options struct {
 	GenotypeFile   string
 	SNPs           []string
@@ -96,7 +98,7 @@ func ParseOptions(args []string) (Options, error) {
 	// Other validations
 	errMsgs := []string{}
 	if opts.GenotypeFile == "" {
-		errMsgs = append(errMsgs, "--genotype-file is required")
+		errMsgs = append(errMsgs, "--genotype-file or corresponding config key 'genotype_file' is required")
 	}
 	if opts.GWASDB == "" {
 		errMsgs = append(errMsgs, "--gwas-db is required")

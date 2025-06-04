@@ -5,8 +5,9 @@ import (
 	"io"
 	"os"
 
-	"phite.io/polygenic-risk-calculator/internal/logging"
 	"phite.io/polygenic-risk-calculator/internal/cli"
+	"phite.io/polygenic-risk-calculator/internal/config"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 	"phite.io/polygenic-risk-calculator/internal/output"
 	"phite.io/polygenic-risk-calculator/internal/pipeline"
 	"phite.io/polygenic-risk-calculator/internal/prs"
@@ -21,6 +22,12 @@ func logAndStderr(stderr io.Writer, format string, args ...interface{}) {
 
 func RunCLI(args []string, stdout, stderr io.Writer) int {
 	logging.Info("PHITE CLI started with args: %v", args)
+
+	// Validate configuration early
+	if err := config.Validate(); err != nil {
+		logAndStderr(stderr, "Configuration error: %v", err)
+		return 1
+	}
 	defer func() {
 		logging.Info("PHITE CLI exiting")
 	}()

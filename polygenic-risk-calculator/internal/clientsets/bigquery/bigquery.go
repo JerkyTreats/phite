@@ -13,6 +13,14 @@ import (
 )
 
 // Client encapsulates config, connection, and query logic for reference stats in BigQuery.
+
+func init() {
+	config.RegisterRequiredKey("bq_project")
+	config.RegisterRequiredKey("bq_dataset")
+	config.RegisterRequiredKey("bq_table")
+	// bq_credentials is optional
+}
+
 type Client struct {
 	ProjectID string
 	Dataset   string
@@ -27,10 +35,8 @@ func NewClient(ctx context.Context) (*Client, error) {
 	dataset := config.GetString("bq_dataset")
 	table := config.GetString("bq_table")
 	creds := config.GetString("bq_credentials")
-	if project == "" || dataset == "" || table == "" {
-		logging.Error("Missing required BigQuery config: project=%s, dataset=%s, table=%s", project, dataset, table)
-		return nil, fmt.Errorf("missing required BigQuery config: project, dataset, or table")
-	}
+	// Validation for project, dataset, and table is now handled by config.Validate() in main.
+
 	var client *bigquery.Client
 	var err error
 	if creds != "" {

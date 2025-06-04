@@ -5,15 +5,18 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings" // Added for ToUpper
 	"sync"
 
 	"github.com/spf13/viper"
 )
 
 var (
-	config     *viper.Viper
-	configOnce sync.Once
-	configPath string
+	config            *viper.Viper
+	configOnce        sync.Once
+	configPath        string
+	requiredKeys      []string
+	requiredKeysMutex sync.Mutex
 )
 
 // resetConfig is for test use only; resets the singleton.
@@ -22,6 +25,9 @@ func ResetForTest() {
 	config = nil
 	configOnce = sync.Once{}
 	configPath = ""
+	requiredKeysMutex.Lock()
+	requiredKeys = nil
+	requiredKeysMutex.Unlock()
 }
 
 // SetConfigPath allows test code to override the config file path before first use.
@@ -104,6 +110,20 @@ func GetBool(key string) bool {
 	return config.GetBool(key)
 }
 
+// RegisterRequiredKey adds a key to the list of required configuration items.
+// This should be called during the init() phase of packages that require specific configurations.
+func RegisterRequiredKey(key string) {
+	requiredKeysMutex.Lock()
+	defer requiredKeysMutex.Unlock()
+	// Avoid duplicates
+	for _, k := range requiredKeys {
+		if k == key {
+			return
+		}
+	}
+	requiredKeys = append(requiredKeys, key)
+}
+
 // HasKey returns true if the config has the key.
 func HasKey(key string) bool {
 	_ = initConfig()
@@ -115,12 +135,34 @@ func HasKey(key string) bool {
 
 // Validate checks for required/invalid config values.
 func Validate() error {
-	// Example: ensure log_level is valid
-	lvl := GetString("log_level")
-	switch lvl {
-	case "DEBUG", "INFO", "ERROR", "WARN":
-		return nil
-	default:
-		return fmt.Errorf("invalid log_level: %s", lvl)
+	_ = initConfig() // Ensure config is loaded
+	if config == nil {
+		return fmt.Errorf("config not initialized, cannot validate")
 	}
+
+	var missingKeys []string
+	requiredKeysMutex.Lock()
+	keysToCheck := make([]string, len(requiredKeys))
+	copy(keysToCheck, requiredKeys)
+	requiredKeysMutex.Unlock()
+
+	for _, key := range keysToCheck {
+		if !HasKey(key) {
+			missingKeys = append(missingKeys, key)
+		}
+	}
+
+	if len(missingKeys) > 0 {
+		return fmt.Errorf("missing required config keys: %v", missingKeys)
+	}
+
+	// Example: ensure log_level is valid (can be extended for other specific validations)
+	lvl := GetString("log_level")
+	switch strings.ToUpper(lvl) { // Convert to uppercase for case-insensitive comparison
+	case "DEBUG", "INFO", "ERROR", "WARN":
+		// Valid log level
+	default:
+		return fmt.Errorf("invalid log_level: %s. Must be one of DEBUG, INFO, ERROR, WARN (case-insensitive)", lvl)
+	}
+	return nil
 }
