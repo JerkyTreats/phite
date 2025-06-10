@@ -3,6 +3,7 @@
 package dbutil
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -147,6 +148,52 @@ func ExecInTransaction(db *sql.DB, fn func(tx *sql.Tx) error) error {
 	success = true
 	logging.Info("Transaction committed successfully")
 	return nil
+}
+
+// RowScanner is a generic function type that defines how to scan a single sql.Row
+// into a pointer to an instance of type T.
+// It's used by ExecuteDuckDBQuery to map query results to specific structs.
+type RowScanner[T any] func(rows *sql.Rows) (*T, error)
+
+// ExecuteDuckDBQuery executes a given SQL query with the provided arguments
+// and uses the supplied RowScanner to map the results to a slice of *T.
+// It handles context cancellation and ensures rows are closed.
+func ExecuteDuckDBQuery[T any](ctx context.Context, db *sql.DB, query string, scanner RowScanner[T], args ...any) ([]*T, error) {
+	logging.Debug("Executing DuckDB query: %s with args: %v", query, args)
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		logging.Error("Error executing query '%s': %v", query, err)
+		return nil, fmt.Errorf("error executing query '%s': %w", query, err)
+	}
+	defer rows.Close()
+
+	var results []*T
+	for rows.Next() {
+		select {
+		case <-ctx.Done():
+			logging.Warn("Context cancelled during query execution for query: %s", query)
+			return nil, ctx.Err()
+		default:
+		}
+
+		item, err := scanner(rows)
+		if err != nil {
+			logging.Error("Error scanning row for query '%s': %v", query, err)
+			// Decide if we should continue or return error immediately.
+			// For now, let's return immediately to avoid partial results that might be misleading.
+			return nil, fmt.Errorf("error scanning row for query '%s': %w", query, err)
+		}
+		results = append(results, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		logging.Error("Error iterating rows for query '%s': %v", query, err)
+		return nil, fmt.Errorf("error iterating rows for query '%s': %w", query, err)
+	}
+
+	logging.Debug("Successfully executed query and scanned %d rows for query: %s", len(results), query)
+	return results, nil
 }
 
 // CloseDB closes a database and logs any errors. Safe for defer.

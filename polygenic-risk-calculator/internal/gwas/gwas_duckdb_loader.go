@@ -1,6 +1,7 @@
 package gwas
 
 import (
+	"database/sql"
 	"os"
 	"strings"
 
@@ -31,6 +32,18 @@ func FetchGWASRecordsWithTable(dbPath, table string, rsids []string) (map[string
 	if len(rsids) == 0 {
 		return map[string]model.GWASSNPRecord{}, nil
 	}
+
+	// Create scanner function for converting SQL rows to GWASSNPRecord objects
+	scanner := func(rows *sql.Rows) (*model.GWASSNPRecord, error) {
+		var rec model.GWASSNPRecord
+		if err := rows.Scan(&rec.RSID, &rec.RiskAllele, &rec.Beta, &rec.Trait); err != nil {
+			logging.Error("Failed to scan GWAS row: %v", err)
+			return nil, err
+		}
+		return &rec, nil
+	}
+
+	// First validate that the table exists with required columns
 	db, err := dbutil.OpenDuckDB(dbPath)
 	if err != nil {
 		logging.Error("Failed to open GWAS DuckDB at %s: %v", dbPath, err)
@@ -38,7 +51,6 @@ func FetchGWASRecordsWithTable(dbPath, table string, rsids []string) (map[string
 	}
 	defer db.Close()
 
-	// Validate GWAS table exists
 	// Validate GWAS table exists
 	err = dbutil.ValidateTable(db, table, []string{"rsid", "risk_allele", "beta", "trait"})
 	if err != nil {
@@ -55,29 +67,24 @@ func FetchGWASRecordsWithTable(dbPath, table string, rsids []string) (map[string
 	}
 	query := `SELECT rsid, risk_allele, beta, trait FROM ` + table + ` WHERE rsid IN (` + strings.Join(placeholders, ",") + ")"
 	logging.Info("Executing GWAS query for %d SNPs", len(rsids))
-	rows, err := db.Query(query, args...)
+
+	// Use the ExecuteDuckDBQueryWithPath function to run the query
+	records, err := dbutil.ExecuteDuckDBQueryWithPath(dbPath, query, scanner, args...)
 	if err != nil {
 		logging.Error("GWAS query failed: %v", err)
 		return nil, err
 	}
-	defer rows.Close()
 
-	var records = make(map[string]model.GWASSNPRecord)
-	for rows.Next() {
-		var rec model.GWASSNPRecord
-		if err := rows.Scan(&rec.RSID, &rec.RiskAllele, &rec.Beta, &rec.Trait); err != nil {
-			logging.Error("Failed to scan GWAS row: %v", err)
-			return nil, err
+	// Convert results from []*model.GWASSNPRecord to map[string]model.GWASSNPRecord
+	recordMap := make(map[string]model.GWASSNPRecord, len(records))
+	for _, rec := range records {
+		if rec != nil {
+			recordMap[rec.RSID] = *rec
 		}
-		records[rec.RSID] = rec
 	}
-	if err := rows.Err(); err != nil {
-		logging.Error("row iteration failed: %v", err)
-		return nil, err
-	}
-	logging.Info("Loaded %d GWAS records from DuckDB", len(records))
-	logging.Info("Loaded %d GWAS records from DuckDB", len(records))
-	return records, nil
+
+	logging.Info("Loaded %d GWAS records from DuckDB", len(recordMap))
+	return recordMap, nil
 }
 
 // FetchGWASRecords loads GWAS SNP records for the given rsids from DuckDB.

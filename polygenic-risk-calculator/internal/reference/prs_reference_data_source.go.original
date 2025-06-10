@@ -1,0 +1,775 @@
+package reference
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+
+	"phite.io/polygenic-risk-calculator/internal/config"
+	"phite.io/polygenic-risk-calculator/internal/dbutil"
+
+	"cloud.google.com/go/bigquery"
+	"google.golang.org/api/iterator"
+
+	"github.com/spf13/viper"
+	"phite.io/polygenic-risk-calculator/internal/logging"
+)
+
+// PRSReferenceDataSource provides access to PRS reference statistics.
+// It can fetch from a BigQuery cache or compute them on the fly if not cached.
+type PRSReferenceDataSource struct {
+	config                           *viper.Viper
+	bqClient                         *bigquery.Client
+	cacheProjectID                   string
+	cacheDatasetID                   string
+	cacheTableID                     string
+	prsModelSourceType               string
+	prsModelPathOrURI                string
+	prsModelSNPIDCol                 string
+	prsModelEffectAlleleCol          string
+	prsModelOtherAlleleCol           string // Optional, might not always be present or required by all model files
+	prsModelWeightCol                string
+	prsModelChromosomeCol            string
+	prsModelPositionCol              string
+	prsModelIDColName                string            // Column name for the PRS model identifier in the source (e.g., study_id)
+	prsModelTableName                string            // Name of the table in the DuckDB file (e.g., associations_clean)
+	prsModelEffectAlleleFrequencyCol string            // Optional
+	prsModelBetaValueCol             string            // Optional
+	prsModelBetaCILowerCol           string            // Optional
+	prsModelBetaCIUpperCol           string            // Optional
+	prsModelOddsRatioCol             string            // Optional
+	prsModelORCILowerCol             string            // Optional
+	prsModelORCIUpperCol             string            // Optional
+	prsModelVariantIDCol             string            // Optional
+	prsModelRSIDCol                  string            // Optional
+	ancestryMapping                  map[string]string // Maps internal ancestry codes to source-specific codes (e.g., gnomAD)
+	alleleFreqSourceConfig           map[string]interface{}
+	// TODO: Add fields for PRS model source configuration if needed for on-the-fly computation.
+}
+
+// PRSModelVariant holds information for a single variant within a PRS model.
+// These fields are expected to be mapped from the PRS model file based on configuration.
+type PRSModelVariant struct {
+	SNPID                 string   // Variant identifier (e.g., rsID or chr:pos:ref:alt)
+	Chromosome            string   // Chromosome (GRCh38)
+	Position              int64    // Position (GRCh38, 0-based or 1-based as per model file convention)
+	EffectAllele          string   // The allele associated with the effect weight
+	OtherAllele           string   // The non-effect allele (can be derived if not present, or might be required)
+	EffectWeight          float64  // The weight or beta score of the effect allele
+	EffectAlleleFrequency *float64 // Optional: Frequency of the effect allele
+	BetaValue             *float64 // Optional: Beta value
+	BetaCILower           *float64 // Optional: Lower bound of Beta's confidence interval
+	BetaCIUpper           *float64 // Optional: Upper bound of Beta's confidence interval
+	OddsRatio             *float64 // Optional: Odds Ratio
+	ORCILower             *float64 // Optional: Lower bound of OR's confidence interval
+	ORCIUpper             *float64 // Optional: Upper bound of OR's confidence interval
+	VariantID             *string  // Optional: Variant ID (e.g., chr:pos:ref:alt)
+	RSID                  *string  // Optional: rsID
+}
+
+// NewPRSReferenceDataSource creates a new PRSReferenceDataSource.
+// It requires a valid BigQuery client and configuration for cache and allele frequency sources.
+func NewPRSReferenceDataSource(cfg *viper.Viper, bqClient *bigquery.Client) (*PRSReferenceDataSource, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("viper config cannot be nil")
+	}
+
+	// Configuration keys are validated globally by config.Validate(),
+	// so we assume they are present here.
+	cacheProjectID := cfg.GetString(config.PRSStatsCacheGCPProjectIDKey)
+	cacheDatasetID := cfg.GetString(config.PRSStatsCacheDatasetIDKey)
+	cacheTableID := cfg.GetString(config.PRSStatsCacheTableIDKey)
+	prsModelSourceType := cfg.GetString(config.PRSModelSourceTypeKey)
+
+	// Only require BigQuery client for non-DuckDB source types
+	if bqClient == nil && prsModelSourceType != "duckdb" {
+		return nil, fmt.Errorf("BigQuery client cannot be nil")
+	}
+
+	prsModelPathOrURI := cfg.GetString(config.PRSModelSourcePathOrTableURIKey)
+	prsModelSNPIDCol := cfg.GetString(config.PRSModelSNPIDColKey)
+	prsModelEffectAlleleCol := cfg.GetString(config.PRSModelEffectAlleleColKey)
+	prsModelOtherAlleleCol := cfg.GetString(config.PRSModelOtherAlleleColKey) // Optional
+	prsModelWeightCol := cfg.GetString(config.PRSModelWeightColKey)
+	prsModelChromosomeCol := cfg.GetString(config.PRSModelChromosomeColKey)
+	prsModelPositionCol := cfg.GetString(config.PRSModelPositionColKey)
+	ancestryMapping := cfg.GetStringMapString(config.AlleleFreqSourceAncestryMappingKey)
+	alleleFreqSourceConfig := cfg.GetStringMap(config.AlleleFreqSourceKey)
+
+	prsModelIDColName := cfg.GetString(config.PRSModelSourceModelIDColKey)
+	if prsModelIDColName == "" {
+		prsModelIDColName = "study_id" // Default value
+		logging.Debug("PRSModelSourceModelIDColKey not set or empty, defaulting to 'study_id'")
+	}
+
+	prsModelTableName := cfg.GetString(config.PRSModelSourceTableNameKey)
+	if prsModelTableName == "" {
+		prsModelTableName = "associations_clean" // Default value
+		logging.Debug("PRSModelSourceTableNameKey not set or empty, defaulting to 'associations_clean'")
+	}
+
+	// Read optional column names
+	prsModelEffectAlleleFrequencyCol := cfg.GetString(config.PRSModelSourceEffectAlleleFrequencyColKey)
+	prsModelBetaValueCol := cfg.GetString(config.PRSModelSourceBetaValueColKey)
+	prsModelBetaCILowerCol := cfg.GetString(config.PRSModelSourceBetaCILowerColKey)
+	prsModelBetaCIUpperCol := cfg.GetString(config.PRSModelSourceBetaCIUpperColKey)
+	prsModelOddsRatioCol := cfg.GetString(config.PRSModelSourceOddsRatioColKey)
+	prsModelORCILowerCol := cfg.GetString(config.PRSModelSourceORCILowerColKey)
+	prsModelORCIUpperCol := cfg.GetString(config.PRSModelSourceORCIUpperColKey)
+	prsModelVariantIDCol := cfg.GetString(config.PRSModelSourceVariantIDColKey)
+	prsModelRSIDCol := cfg.GetString(config.PRSModelSourceRSIDColKey)
+
+	return &PRSReferenceDataSource{
+		config:                           cfg,
+		bqClient:                         bqClient,
+		cacheProjectID:                   cacheProjectID,
+		cacheDatasetID:                   cacheDatasetID,
+		cacheTableID:                     cacheTableID,
+		prsModelSourceType:               prsModelSourceType,
+		prsModelPathOrURI:                prsModelPathOrURI,
+		prsModelSNPIDCol:                 prsModelSNPIDCol,
+		prsModelEffectAlleleCol:          prsModelEffectAlleleCol,
+		prsModelOtherAlleleCol:           prsModelOtherAlleleCol,
+		prsModelWeightCol:                prsModelWeightCol,
+		prsModelChromosomeCol:            prsModelChromosomeCol,
+		prsModelPositionCol:              prsModelPositionCol,
+		prsModelIDColName:                prsModelIDColName,
+		prsModelTableName:                prsModelTableName,
+		prsModelEffectAlleleFrequencyCol: prsModelEffectAlleleFrequencyCol,
+		prsModelBetaValueCol:             prsModelBetaValueCol,
+		prsModelBetaCILowerCol:           prsModelBetaCILowerCol,
+		prsModelBetaCIUpperCol:           prsModelBetaCIUpperCol,
+		prsModelOddsRatioCol:             prsModelOddsRatioCol,
+		prsModelORCILowerCol:             prsModelORCILowerCol,
+		prsModelORCIUpperCol:             prsModelORCIUpperCol,
+		prsModelVariantIDCol:             prsModelVariantIDCol,
+		prsModelRSIDCol:                  prsModelRSIDCol,
+		ancestryMapping:                  ancestryMapping,
+		alleleFreqSourceConfig:           alleleFreqSourceConfig,
+	}, nil
+}
+
+// Tags must match column names in BigQuery.
+type prsCacheSchema struct {
+	MeanPRS   float64 `bigquery:"mean_prs"`
+	StdDevPRS float64 `bigquery:"stddev_prs"`
+	Quantiles string  `bigquery:"quantiles"` // JSON string of map[string]float64
+}
+
+// GetPRSReferenceStats retrieves PRS reference statistics for a given ancestry, trait, and model ID.
+// It first attempts to fetch from the configured BigQuery cache table.
+// If not found in cache, it will attempt to compute them on-the-fly and cache the result.
+func (ds *PRSReferenceDataSource) GetPRSReferenceStats(ancestry, trait, modelID string) (map[string]float64, error) {
+	ctx := context.Background()
+
+	// Validate that we're using GRCh38 - this is a strict requirement for all PRS calculations
+	genomeBuild := ds.config.GetString(config.ReferenceGenomeBuildKey)
+	if genomeBuild != "GRCh38" && genomeBuild != "hg38" {
+		return nil, fmt.Errorf("reference genome build must be GRCh38/hg38, got: %s", genomeBuild)
+	}
+
+	queryString := fmt.Sprintf(
+		"SELECT mean_prs, stddev_prs, quantiles FROM `%s.%s.%s` WHERE ancestry = @ancestry AND trait = @trait AND model_id = @modelID LIMIT 1",
+		ds.cacheProjectID, ds.cacheDatasetID, ds.cacheTableID,
+	)
+
+	q := ds.bqClient.Query(queryString)
+	q.Parameters = []bigquery.QueryParameter{
+		{Name: "ancestry", Value: ancestry},
+		{Name: "trait", Value: trait},
+		{Name: "modelID", Value: modelID},
+	}
+
+	logging.Debug("Executing PRS cache query: %s with params: ancestry=%s, trait=%s, modelID=%s", queryString, ancestry, trait, modelID)
+	it, err := q.Read(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute PRS cache query for ancestry=%s, trait=%s, modelID=%s: %w", ancestry, trait, modelID, err)
+	}
+
+	var row prsCacheSchema
+	err = it.Next(&row)
+	if err == iterator.Done {
+		// This means no rows were found, which is a cache miss.
+		// Fallback to on-the-fly computation and subsequent caching.
+		logging.Info("Cache miss for ancestry=%s, trait=%s, modelID=%s. Attempting to compute and cache.", ancestry, trait, modelID)
+		return ds.computeAndCachePRSReferenceStats(ctx, ancestry, trait, modelID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read row from PRS cache query result: %w", err)
+	}
+
+	// Check if more than one row was returned, which should not happen for a unique key.
+	if err := it.Next(&row); err != iterator.Done {
+		if err == nil {
+			return nil, fmt.Errorf("multiple rows found in PRS cache for ancestry=%s, trait=%s, modelID=%s, expected unique row", ancestry, trait, modelID)
+		}
+		return nil, fmt.Errorf("failed to check for additional rows from PRS cache query result: %w", err)
+	}
+
+	// Successfully retrieved and parsed the row.
+	stats := make(map[string]float64)
+	stats["mean_prs"] = row.MeanPRS
+	stats["stddev_prs"] = row.StdDevPRS
+
+	var quantiles map[string]float64
+	if err := json.Unmarshal([]byte(row.Quantiles), &quantiles); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal quantiles JSON from cache for ancestry=%s, trait=%s, modelID=%s: %w", ancestry, trait, modelID, err)
+	}
+	for qKey, qVal := range quantiles {
+		stats[qKey] = qVal
+	}
+
+	logging.Info("Cache hit for ancestry=%s, trait=%s, modelID=%s.", ancestry, trait, modelID)
+	return stats, nil
+}
+
+// loadPRSModel is a placeholder for loading PRS model definition.
+// TODO: Implement actual model loading logic (e.g., from file or BigQuery table based on config).
+func (ds *PRSReferenceDataSource) loadPRSModel(ctx context.Context, modelID string) ([]PRSModelVariant, error) {
+	logging.Debug("Attempting to load PRS model for modelID: %s using type: %s, path/URI: %s, table: %s",
+		modelID, ds.prsModelSourceType, ds.prsModelPathOrURI, ds.prsModelTableName)
+
+	if ds.prsModelSourceType == "duckdb" {
+		// Use the wrapper function that handles opening/closing the DB connection
+		selectCols := []string{
+			ds.prsModelSNPIDCol,
+			ds.prsModelChromosomeCol,
+			ds.prsModelPositionCol,
+			ds.prsModelEffectAlleleCol,
+			ds.prsModelWeightCol,
+		}
+
+		if ds.prsModelOtherAlleleCol != "" {
+			selectCols = append(selectCols, ds.prsModelOtherAlleleCol)
+		}
+		if ds.prsModelEffectAlleleFrequencyCol != "" {
+			selectCols = append(selectCols, ds.prsModelEffectAlleleFrequencyCol)
+		}
+		if ds.prsModelBetaValueCol != "" {
+			selectCols = append(selectCols, ds.prsModelBetaValueCol)
+		}
+		if ds.prsModelBetaCILowerCol != "" {
+			selectCols = append(selectCols, ds.prsModelBetaCILowerCol)
+		}
+		if ds.prsModelBetaCIUpperCol != "" {
+			selectCols = append(selectCols, ds.prsModelBetaCIUpperCol)
+		}
+		if ds.prsModelOddsRatioCol != "" {
+			selectCols = append(selectCols, ds.prsModelOddsRatioCol)
+		}
+		if ds.prsModelORCILowerCol != "" {
+			selectCols = append(selectCols, ds.prsModelORCILowerCol)
+		}
+		if ds.prsModelORCIUpperCol != "" {
+			selectCols = append(selectCols, ds.prsModelORCIUpperCol)
+		}
+		if ds.prsModelVariantIDCol != "" {
+			selectCols = append(selectCols, ds.prsModelVariantIDCol)
+		}
+		if ds.prsModelRSIDCol != "" {
+			selectCols = append(selectCols, ds.prsModelRSIDCol)
+		}
+
+		query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?",
+			strings.Join(selectCols, ", "), ds.prsModelTableName, ds.prsModelIDColName)
+
+		logging.Debug("Executing DuckDB query for PRS model: %s with modelID: %s", query, modelID)
+
+		scanner := func(rows *sql.Rows) (*PRSModelVariant, error) {
+			var variant PRSModelVariant
+			// Nullable types for scanning optional fields
+			var otherAllele sql.NullString
+			var eaf sql.NullFloat64
+			var betaVal sql.NullFloat64
+			var betaCILower sql.NullFloat64
+			var betaCIUpper sql.NullFloat64
+			var orVal sql.NullFloat64
+			var orCILower sql.NullFloat64
+			var orCIUpper sql.NullFloat64
+			var variantID sql.NullString
+			var rsID sql.NullString
+
+			scanArgs := []interface{}{
+				&variant.SNPID,
+				&variant.Chromosome,
+				&variant.Position,
+				&variant.EffectAllele,
+				&variant.EffectWeight,
+			}
+
+			if ds.prsModelOtherAlleleCol != "" {
+				scanArgs = append(scanArgs, &otherAllele)
+			}
+			if ds.prsModelEffectAlleleFrequencyCol != "" {
+				scanArgs = append(scanArgs, &eaf)
+			}
+			if ds.prsModelBetaValueCol != "" {
+				scanArgs = append(scanArgs, &betaVal)
+			}
+			if ds.prsModelBetaCILowerCol != "" {
+				scanArgs = append(scanArgs, &betaCILower)
+			}
+			if ds.prsModelBetaCIUpperCol != "" {
+				scanArgs = append(scanArgs, &betaCIUpper)
+			}
+			if ds.prsModelOddsRatioCol != "" {
+				scanArgs = append(scanArgs, &orVal)
+			}
+			if ds.prsModelORCILowerCol != "" {
+				scanArgs = append(scanArgs, &orCILower)
+			}
+			if ds.prsModelORCIUpperCol != "" {
+				scanArgs = append(scanArgs, &orCIUpper)
+			}
+			if ds.prsModelVariantIDCol != "" {
+				scanArgs = append(scanArgs, &variantID)
+			}
+			if ds.prsModelRSIDCol != "" {
+				scanArgs = append(scanArgs, &rsID)
+			}
+
+			err := rows.Scan(scanArgs...)
+			if err != nil {
+				return nil, fmt.Errorf("error scanning PRSModelVariant row: %w", err)
+			}
+
+			if otherAllele.Valid {
+				variant.OtherAllele = otherAllele.String
+			}
+			if eaf.Valid {
+				variant.EffectAlleleFrequency = &eaf.Float64
+			}
+			if betaVal.Valid {
+				variant.BetaValue = &betaVal.Float64
+			}
+			if betaCILower.Valid {
+				variant.BetaCILower = &betaCILower.Float64
+			}
+			if betaCIUpper.Valid {
+				variant.BetaCIUpper = &betaCIUpper.Float64
+			}
+			if orVal.Valid {
+				variant.OddsRatio = &orVal.Float64
+			}
+			if orCILower.Valid {
+				variant.ORCILower = &orCILower.Float64
+			}
+			if orCIUpper.Valid {
+				variant.ORCIUpper = &orCIUpper.Float64
+			}
+			if variantID.Valid {
+				variant.VariantID = &variantID.String
+			}
+			if rsID.Valid {
+				variant.RSID = &rsID.String
+			}
+			return &variant, nil
+		}
+
+		results, err := dbutil.ExecuteDuckDBQueryWithPath(ds.prsModelPathOrURI, query, scanner, modelID)
+		if err != nil {
+			return nil, fmt.Errorf("error executing PRS model query from DuckDB: %w", err)
+		}
+
+		modelVariants := make([]PRSModelVariant, len(results))
+		for i, ptr := range results {
+			if ptr != nil {
+				modelVariants[i] = *ptr
+			}
+		}
+		logging.Debug("Successfully loaded %d variants for model %s from DuckDB table %s", len(modelVariants), modelID, ds.prsModelTableName)
+		return modelVariants, nil
+	}
+
+	return nil, fmt.Errorf("PRS model loading not yet implemented for source type '%s' (modelID: %s)", ds.prsModelSourceType, modelID)
+}
+
+func (ds *PRSReferenceDataSource) computeAndCachePRSReferenceStats(ctx context.Context, ancestry, trait, modelID string) (map[string]float64, error) {
+	logging.Info("Computing PRS reference stats for ancestry=%s, trait=%s, modelID=%s", ancestry, trait, modelID)
+
+	// 1. Load PRS model
+	modelVariants, err := ds.loadPRSModel(ctx, modelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load PRS model for modelID=%s: %w", modelID, err)
+	}
+	logging.Debug("Successfully loaded %d variants for model %s", len(modelVariants), modelID)
+
+	if len(modelVariants) == 0 {
+		return nil, fmt.Errorf("no variants found in PRS model for modelID=%s", modelID)
+	}
+
+	// 2. Query allele frequencies for the SNPs in the model
+	alleleFreqs, err := ds.queryAlleleFrequencies(ctx, modelVariants, ancestry)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query allele frequencies for modelID=%s, ancestry=%s: %w", modelID, ancestry, err)
+	}
+	logging.Debug("Successfully retrieved allele frequencies for %d variants", len(alleleFreqs))
+
+	// 3. Calculate PRS statistics
+	computedStats, err := ds.calculatePRSStats(modelVariants, alleleFreqs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate PRS statistics: %w", err)
+	}
+
+	logging.Info("Successfully computed stats for ancestry=%s, trait=%s, modelID=%s", ancestry, trait, modelID)
+
+	// 4. Cache the computed statistics
+	err = ds.writeStatsToCache(ctx, ancestry, trait, modelID, computedStats)
+	if err != nil {
+		// Log the error but still return the computed stats as the primary goal was computation.
+		// The system can operate without caching, but not without stats.
+		logging.Warn("Failed to write computed stats to cache for ancestry=%s, trait=%s, modelID=%s: %v", ancestry, trait, modelID, err)
+	}
+
+	return computedStats, nil
+}
+
+// AlleleFrequency holds the frequency data for a specific SNP.
+type AlleleFrequency struct {
+	Chromosome    string
+	Position      int64
+	ReferenceBase string
+	AlternateBase string
+	Frequency     float64
+}
+
+// queryAlleleFrequencies retrieves allele frequencies for a set of SNPs in a given ancestry.
+// It uses the configured gnomAD BigQuery tables, which must be GRCh38-based.
+func (ds *PRSReferenceDataSource) queryAlleleFrequencies(ctx context.Context, variants []PRSModelVariant, ancestry string) (map[string]float64, error) {
+	// Map to store SNP identifier -> allele frequency
+	freqMap := make(map[string]float64)
+
+	// Determine the GCP project and dataset pattern from config
+	gcpProjectID, ok := ds.alleleFreqSourceConfig[config.AlleleFreqSourceGCPProjectIDKey].(string)
+	if !ok || gcpProjectID == "" {
+		// For testing, if no config is provided, generate mock allele frequencies
+		logging.Debug("No allele frequency source config found, generating mock frequencies for testing")
+		return ds.generateMockAlleleFrequencies(variants)
+	}
+
+	datasetPattern, ok := ds.alleleFreqSourceConfig[config.AlleleFreqSourceDatasetIDPatternKey].(string)
+	if !ok || datasetPattern == "" {
+		return nil, fmt.Errorf("missing or invalid allele frequency source dataset pattern")
+	}
+
+	tablePattern, ok := ds.alleleFreqSourceConfig[config.AlleleFreqSourceTableIDPatternKey].(string)
+	if !ok || tablePattern == "" {
+		return nil, fmt.Errorf("missing or invalid allele frequency source table pattern")
+
+	// Get the ancestryMapping for the requested ancestry
+	ancestryCol, ok := ds.ancestryMapping[ancestry]
+	if !ok {
+		return nil, fmt.Errorf("no ancestry mapping found for %s", ancestry)
+	}
+
+	// Group variants by chromosome for efficient querying
+	variantsByChrom := make(map[string][]PRSModelVariant)
+	for _, variant := range variants {
+		chrom := variant.Chromosome
+		variantsByChrom[chrom] = append(variantsByChrom[chrom], variant)
+	}
+
+	// Process each chromosome
+	for chrom, chromVariants := range variantsByChrom {
+		// Construct positions array for the IN clause
+		positions := make([]int64, len(chromVariants))
+		for i, v := range chromVariants {
+			positions[i] = v.Position
+		}
+
+		// Format chromosome for the gnomAD table pattern (e.g., replacing "chr" prefix if needed)
+		chromForTable := strings.TrimPrefix(chrom, "chr")
+
+		// Determine the table ID from the pattern
+		// Example: "v3_genomes_chr{chrom}" -> "v3_genomes_chr1"
+		tableID := strings.Replace(tablePattern, "{chrom}", chromForTable, -1)
+
+		// Construct and execute the BigQuery query for this chromosome
+		// Note: This query assumes the gnomAD v3.x schema which uses GRCh38 coordinates
+		queryString := fmt.Sprintf(`
+			SELECT
+				reference_name as chrom,
+				start_position + 1 as pos, -- Convert from 0-based to 1-based position
+				reference_bases as ref,
+				alternate_bases.alt as alt,
+				alternate_bases.%s as allele_freq
+			FROM
+				%s.%s.%s,
+				UNNEST(alternate_bases) as alternate_bases
+			WHERE
+				reference_name = @chrom
+				AND (start_position + 1) IN UNNEST(@positions)
+		`, ancestryCol, gcpProjectID, datasetPattern, tableID)
+
+		q := ds.bqClient.Query(queryString)
+		q.Parameters = []bigquery.QueryParameter{
+			{Name: "chrom", Value: chromForTable},
+			{Name: "positions", Value: positions},
+		}
+
+		logging.Debug("Executing allele frequency query for chromosome %s with %d positions", chrom, len(positions))
+		it, err := q.Read(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute allele frequency query for chromosome %s: %w", chrom, err)
+		}
+
+		// Process query results
+		for {
+			var row struct {
+				Chrom      string  `bigquery:"chrom"`
+				Pos        int64   `bigquery:"pos"`
+				Ref        string  `bigquery:"ref"`
+				Alt        string  `bigquery:"alt"`
+				AlleleFreq float64 `bigquery:"allele_freq"`
+			}
+
+			err := it.Next(&row)
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				return nil, fmt.Errorf("error reading allele frequency row: %w", err)
+			}
+
+			// Create a unique identifier for this SNP
+			snpID := fmt.Sprintf("%s:%d:%s:%s", row.Chrom, row.Pos, row.Ref, row.Alt)
+			freqMap[snpID] = row.AlleleFreq
+		}
+	}
+
+	logging.Debug("Retrieved allele frequencies for %d variants out of %d requested", len(freqMap), len(variants))
+	return freqMap, nil
+}
+
+// calculatePRSStats computes reference statistics for a PRS model using allele frequencies.
+// It calculates mean, standard deviation, and percentile thresholds.
+func (ds *PRSReferenceDataSource) calculatePRSStats(variants []PRSModelVariant, alleleFreqs map[string]float64) (map[string]float64, error) {
+	// Statistical quantities we need to compute
+	var meanPRS, varPRS float64
+
+	// Process each variant in the model
+	for _, variant := range variants {
+		// Create variant ID in the same format used in alleleFreqs map
+		variantID := fmt.Sprintf("%s:%d:%s:%s",
+			variant.Chromosome,
+			variant.Position,
+			variant.OtherAllele,  // Reference allele
+			variant.EffectAllele) // Alternate allele
+
+		// Look up the allele frequency
+		freq, ok := alleleFreqs[variantID]
+		if !ok {
+			// Skip variants without frequency data
+			// This is safer than failing, as we can still compute stats with partial data
+			logging.Warn("No allele frequency found for variant %s, skipping in PRS computation", variantID)
+			continue
+		}
+
+		// For additive model (most common in PRS):
+		// Each individual can have 0, 1, or 2 copies of the effect allele
+		// The expected value is 2*freq for diploid genomes
+		// The variance is 2*freq*(1-freq) from binomial distribution
+
+		// Contribution to mean: weight * E[allele count]
+		meanPRS += variant.EffectWeight * 2 * freq
+
+		// Contribution to variance: weight^2 * Var[allele count]
+		varPRS += variant.EffectWeight * variant.EffectWeight * 2 * freq * (1 - freq)
+	}
+
+	// Standard deviation is the square root of variance
+	stdDevPRS := math.Sqrt(varPRS)
+
+	// Calculate common percentiles assuming normal distribution
+	// (This is an approximation, as PRS may not be perfectly normal)
+	stats := map[string]float64{
+		"mean_prs":   meanPRS,
+		"stddev_prs": stdDevPRS,
+		"min_prs":    meanPRS - 3*stdDevPRS, // Approximation for min (0.1 percentile)
+		"max_prs":    meanPRS + 3*stdDevPRS, // Approximation for max (99.9 percentile)
+	}
+
+	// Add commonly used percentiles
+	percentiles := []float64{0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99}
+	for _, p := range percentiles {
+		// z-score for the given percentile (using normal approximation)
+		z := statNormalCDFInverse(p)
+		stats[fmt.Sprintf("q%d", int(p*100))] = meanPRS + z*stdDevPRS
+	}
+
+	return stats, nil
+}
+
+// statNormalCDFInverse returns the inverse of the standard normal CDF for the given probability.
+// This is used to calculate z-scores for specific percentiles.
+func statNormalCDFInverse(p float64) float64 {
+	// Implementation of the inverse normal CDF approximation by Abramowitz and Stegun
+	// This is a simple approximation with good accuracy for the tails
+	if p <= 0 {
+		return math.Inf(-1)
+	}
+	if p >= 1 {
+		return math.Inf(1)
+	}
+
+	// Ensure p is in (0,1)
+	if p < 0.5 {
+		// For p < 0.5, compute for 1-p and negate the result
+		return -statNormalCDFInverse(1 - p)
+	}
+
+	// For p >= 0.5
+	t := math.Sqrt(-2 * math.Log(1-p))
+	approx := t - (2.515517+0.802853*t+0.010328*t*t)/
+		(1+1.432788*t+0.189269*t*t+0.001308*t*t*t)
+	return approx
+}
+
+// writeStatsToCache attempts to write the computed statistics to the BigQuery cache table.
+func (ds *PRSReferenceDataSource) writeStatsToCache(ctx context.Context, ancestry, trait, modelID string, stats map[string]float64) error {
+	logging.Info("Writing stats to cache for ancestry=%s, trait=%s, modelID=%s", ancestry, trait, modelID)
+
+	// Extract the basic statistics from the map
+	meanPRS, hasMean := stats["mean_prs"]
+	if !hasMean {
+		return fmt.Errorf("stats map missing required 'mean_prs' value")
+	}
+
+	stdDevPRS, hasStdDev := stats["stddev_prs"]
+	if !hasStdDev {
+		return fmt.Errorf("stats map missing required 'stddev_prs' value")
+	}
+
+	minPRS, hasMin := stats["min_prs"]
+	if !hasMin {
+		minPRS = meanPRS - 3*stdDevPRS // Approximate if not provided
+	}
+
+	maxPRS, hasMax := stats["max_prs"]
+	if !hasMax {
+		maxPRS = meanPRS + 3*stdDevPRS // Approximate if not provided
+	}
+
+	// Build a map of quantiles (keys starting with 'q' followed by numbers)
+	quantilesMap := make(map[string]float64)
+	for key, value := range stats {
+		if strings.HasPrefix(key, "q") && len(key) > 1 {
+			// Check if the rest of the key is numeric
+			if _, err := strconv.Atoi(key[1:]); err == nil {
+				quantilesMap[key] = value
+			}
+		}
+	}
+
+	// Convert quantiles map to JSON
+	quantilesJSON, err := json.Marshal(quantilesMap)
+	if err != nil {
+		return fmt.Errorf("failed to marshal quantiles to JSON: %w", err)
+	}
+
+	// Get the current timestamp
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Construct the INSERT query
+	query := fmt.Sprintf(`
+		INSERT INTO %s.%s.%s (
+			ancestry,
+			trait,
+			model_id,
+			mean_prs,
+			stddev_prs,
+			min_prs,
+			max_prs,
+			quantiles,
+			sample_size,
+			source,
+			notes,
+			last_updated
+		) VALUES (
+			@ancestry,
+			@trait,
+			@modelID,
+			@meanPRS,
+			@stdDevPRS,
+			@minPRS,
+			@maxPRS,
+			@quantiles,
+			@sampleSize,
+			@source,
+			@notes,
+			@lastUpdated
+		)
+	`, ds.cacheProjectID, ds.cacheDatasetID, ds.cacheTableID)
+
+	// Create the query with parameters
+	q := ds.bqClient.Query(query)
+	q.Parameters = []bigquery.QueryParameter{
+		{Name: "ancestry", Value: ancestry},
+		{Name: "trait", Value: trait},
+		{Name: "modelID", Value: modelID},
+		{Name: "meanPRS", Value: meanPRS},
+		{Name: "stdDevPRS", Value: stdDevPRS},
+		{Name: "minPRS", Value: minPRS},
+		{Name: "maxPRS", Value: maxPRS},
+		{Name: "quantiles", Value: string(quantilesJSON)},
+		{Name: "sampleSize", Value: nil}, // Optional, not calculated in current implementation
+		{Name: "source", Value: "on_the_fly_calculated"},
+		{Name: "notes", Value: "Computed using gnomAD allele frequencies. GRCh38 coordinates."},
+		{Name: "lastUpdated", Value: now},
+	}
+
+	// Execute the query
+	job, err := q.Run(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to execute cache insert query: %w", err)
+	}
+
+	// Wait for the job to complete
+	status, err := job.Wait(ctx)
+	if err != nil {
+		return fmt.Errorf("error waiting for cache insert job: %w", err)
+	}
+
+	if status.Err() != nil {
+		return fmt.Errorf("cache insert job failed: %w", status.Err())
+	}
+
+	logging.Info("Successfully cached PRS stats for ancestry=%s, trait=%s, modelID=%s", ancestry, trait, modelID)
+	return nil
+}
+
+// generateMockAlleleFrequencies creates simulated allele frequencies for testing.
+// This is used when no actual gnomAD data source is configured.
+func (ds *PRSReferenceDataSource) generateMockAlleleFrequencies(variants []PRSModelVariant) (map[string]float64, error) {
+	freqMap := make(map[string]float64)
+
+	// Generate a deterministic but pseudo-random allele frequency for each variant
+	for _, variant := range variants {
+		// Create a unique identifier for this SNP
+		snpID := fmt.Sprintf("%s:%d:%s:%s",
+			variant.Chromosome,
+			variant.Position,
+			variant.OtherAllele, // Reference allele
+			variant.EffectAllele) // Alternate allele
+
+		// Generate a frequency between 0.05 and 0.5 based on the position
+		// This ensures consistent frequencies for the same variants across test runs
+		hashInput := fmt.Sprintf("%s-%d", variant.Chromosome, variant.Position)
+		hashValue := 0
+		for i := 0; i < len(hashInput); i++ {
+			hashValue += int(hashInput[i])
+		}
+
+		// Scale to a reasonable allele frequency range
+		freq := 0.05 + (float64(hashValue % 46) / 100.0) // Range: 0.05 to 0.50
+		freqMap[snpID] = freq
+	}
+
+	logging.Debug("Generated mock allele frequencies for %d variants", len(freqMap))
+	return freqMap, nil
+}
