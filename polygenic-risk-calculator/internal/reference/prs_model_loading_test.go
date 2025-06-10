@@ -3,87 +3,26 @@ package reference
 
 import (
 	"context"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
-	"cloud.google.com/go/bigquery"
 	"github.com/spf13/viper"
-	"google.golang.org/api/option"
 	"phite.io/polygenic-risk-calculator/internal/config"
 	"phite.io/polygenic-risk-calculator/internal/dbutil"
 )
 
-// Helper function to create a temporary DuckDB database with a PRS model table
-func setupTempPRSModelDuckDB(t *testing.T) (string, func()) {
-	t.Helper()
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "test_prs_model.duckdb")
-
-	// Create a temporary DuckDB database with a PRS model table
-	db, err := dbutil.OpenDuckDB(dbPath)
-	if err != nil {
-		t.Fatalf("Failed to open DuckDB at %s: %v", dbPath, err)
-	}
-	defer db.Close()
-
-	// Create a PRS model table with all required columns
-	_, err = db.Exec(`
-		CREATE TABLE prs_model (
-			snp_id VARCHAR,
-			effect_allele CHAR(1),
-			other_allele CHAR(1),
-			effect_weight DOUBLE,
-			chromosome VARCHAR,
-			position INTEGER
-		);
-
-		INSERT INTO prs_model VALUES
-			('rs123', 'A', 'G', 0.1, '1', 1000000),
-			('rs456', 'T', 'C', -0.2, '2', 2000000),
-			('rs789', 'G', 'A', 0.3, '3', 3000000);
-	`)
-	if err != nil {
-		t.Fatalf("Failed to create and populate PRS model table: %v", err)
-	}
-
-	return dbPath, func() {
-		// tempDir is cleaned up automatically by t.TempDir()
-	}
-}
-
-// Helper function to create a mock BigQuery client for testing
-func newMockBigQueryClient(t *testing.T, projectID string) *bigquery.Client {
-	t.Helper()
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "{}") // Minimal valid JSON response
-	}))
-	t.Cleanup(func() { mockServer.Close() })
-
-	bqClient, err := bigquery.NewClient(context.Background(), projectID,
-		option.WithEndpoint(mockServer.URL),
-		option.WithoutAuthentication(),
-		option.WithHTTPClient(mockServer.Client()),
-	)
-	if err != nil {
-		t.Fatalf("Failed to create mock BigQuery client: %v", err)
-	}
-	return bqClient
-}
+// Using the common test helpers instead of local helper functions
 
 func TestLoadPRSModel_DuckDB(t *testing.T) {
 	// Skip this test as DuckDB loading is not fully implemented yet
 	t.Skip("Skipping test that requires DuckDB loading implementation")
 
 	// Mock BQ client is needed for NewPRSReferenceDataSource, though not used by DuckDB path.
-	mockBQClient := newMockBigQueryClient(t, "test-bq-project")
+	mockBQClient := NewMockBigQueryClient(t, "test-bq-project")
 
 	t.Run("successful load all fields", func(t *testing.T) {
-		cfg := viper.New()
-		dbPath, cleanup := setupTempPRSModelDuckDB(t)
+		cfg := SetupPRSModelTestConfig(t, nil)
+		dbPath, cleanup := SetupPRSModelDuckDB(t)
 		defer cleanup()
 
 		cfg.Set(config.PRSModelSourceTypeKey, "duckdb")
@@ -144,8 +83,8 @@ func TestLoadPRSModel_DuckDB(t *testing.T) {
 	})
 
 	t.Run("missing table returns error", func(t *testing.T) {
-		cfg := viper.New()
-		dbPath, cleanup := setupTempPRSModelDuckDB(t)
+		cfg := SetupPRSModelTestConfig(t, nil)
+		dbPath, cleanup := SetupPRSModelDuckDB(t)
 		defer cleanup()
 
 		cfg.Set(config.PRSModelSourceTypeKey, "duckdb")

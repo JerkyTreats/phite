@@ -13,3 +13,7 @@ You are an AI agent working on the PHITE (Personal Health Inference, Training, E
 
 ## Programming Style
 - Prefer TDD style red-green-refactor software development
+
+## Agent Workflows
+
+When a decision to create/modify/delete file(s) has been made by the agent, communicate intent to the user and wait for confirmation before proceeding with the action.

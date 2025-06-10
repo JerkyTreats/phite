@@ -18,10 +18,7 @@ import (
 // TestNewPRSReferenceDataSource_NilBQClient checks if the PRSReferenceDataSource can be created.
 func TestNewPRSReferenceDataSource_NilBQClient(t *testing.T) {
 	// Valid configuration for testing
-	cfg := viper.New()
-	cfg.Set(config.PRSStatsCacheGCPProjectIDKey, "test-gcp-project")
-	cfg.Set(config.PRSStatsCacheDatasetIDKey, "test_dataset")
-	cfg.Set(config.PRSStatsCacheTableIDKey, "test_prs_cache_table")
+	cfg := SetupBasicTestConfig(t)
 	cfg.Set(config.AlleleFreqSourceTypeKey, "gnomad_bigquery")
 	cfg.Set(config.AlleleFreqSourceGCPProjectIDKey, "gnomad-gcp-project")
 	cfg.Set(config.AlleleFreqSourceDatasetIDPatternKey, "gnomad_r{version}_grch{build}")
@@ -29,7 +26,6 @@ func TestNewPRSReferenceDataSource_NilBQClient(t *testing.T) {
 	cfg.Set(config.AlleleFreqSourceAncestryMappingKey, map[string]string{"EUR": "nfe", "AFR": "afr"})
 	cfg.Set(config.PRSModelSourceTypeKey, "file_system")
 	cfg.Set(config.PRSModelSourcePathOrTableURIKey, "./testdata/prs_models")
-	cfg.Set(config.ReferenceGenomeBuildKey, "GRCh38")
 
 	dataSource, err := NewPRSReferenceDataSource(cfg, nil) // Pass nil for BigQuery client
 
@@ -48,7 +44,7 @@ func TestNewPRSReferenceDataSource_NilBQClient(t *testing.T) {
 }
 
 func TestNewPRSReferenceDataSource_Success(t *testing.T) {
-	cfg := viper.New()
+	cfg := SetupBasicTestConfig(t)
 	cfg.Set(config.PRSStatsCacheGCPProjectIDKey, "test-gcp-project-success")
 	cfg.Set(config.PRSStatsCacheDatasetIDKey, "test_dataset_success")
 	cfg.Set(config.PRSStatsCacheTableIDKey, "test_prs_cache_table_success")
@@ -60,16 +56,14 @@ func TestNewPRSReferenceDataSource_Success(t *testing.T) {
 	cfg.Set(config.AlleleFreqSourceAncestryMappingKey, ancestryMap)
 	cfg.Set(config.PRSModelSourceTypeKey, "file_system_success")
 	cfg.Set(config.PRSModelSourcePathOrTableURIKey, "./testdata/prs_models_success")
-	cfg.Set(config.ReferenceGenomeBuildKey, "GRCh38")
 
 	// Create a mock HTTP server for BigQuery client
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mockServer := NewMockBigQueryServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// This handler is for the dummy client in TestNewPRSReferenceDataSource_Success.
 		// It doesn't need to return specific query results, just allow client creation.
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "{}") // Minimal valid JSON response
 	}))
-	defer mockServer.Close()
 
 	dummyProjectID := "dummy-bq-project-success"
 	bqClient, err := bigquery.NewClient(context.Background(), dummyProjectID,

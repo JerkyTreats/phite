@@ -43,22 +43,10 @@ func TestGetPRSReferenceStats_CacheMiss_ComputesAndReturnsStats(t *testing.T) {
 	// and the system computes and caches them successfully.
 	// For brevity, this is a simplified version.
 
-	cfg := viper.New()
+	cfg := SetupPRSModelTestConfig(t, nil)
 	cfg.Set(config.PRSStatsCacheGCPProjectIDKey, "cache-miss-project")
 	cfg.Set(config.PRSStatsCacheDatasetIDKey, "cache_miss_dataset")
 	cfg.Set(config.PRSStatsCacheTableIDKey, "prs_reference_stats_cache")
-	cfg.Set(config.AlleleFreqSourceTypeKey, "bigquery_gnomad")
-	cfg.Set(config.AlleleFreqSourceGCPProjectIDKey, "bigquery-public-data")
-	cfg.Set(config.AlleleFreqSourceDatasetIDPatternKey, "gnomAD")
-	cfg.Set(config.AlleleFreqSourceTableIDPatternKey, "genomes_v3_GRCh38")
-	cfg.Set(config.AlleleFreqSourceAncestryMappingKey, map[string]string{"EUR": "AF_nfe"})
-	cfg.Set(config.PRSModelSourceTypeKey, "file")
-	cfg.Set(config.PRSModelSourcePathOrTableURIKey, "./testdata/test_prs_model.tsv")
-	cfg.Set(config.PRSModelSNPIDColKey, "snp_id")
-	cfg.Set(config.PRSModelEffectAlleleColKey, "effect_allele")
-	cfg.Set(config.PRSModelOtherAlleleColKey, "other_allele")
-	cfg.Set(config.PRSModelWeightColKey, "effect_weight")
-	cfg.Set(config.ReferenceGenomeBuildKey, "GRCh38")
 
 	// Setup would include mock servers for:
 	// 1. Initial query to stats cache (returns empty)
@@ -73,22 +61,10 @@ func TestGetPRSReferenceStats_CacheMiss_ComputesAndReturnsStats(t *testing.T) {
 
 func TestComputeAndCachePRSReferenceStats_Success(t *testing.T) {
 	// Create a test configuration
-	cfg := viper.New()
+	cfg := SetupPRSModelTestConfig(t, nil)
 	cfg.Set(config.PRSStatsCacheGCPProjectIDKey, "compute-cache-project")
 	cfg.Set(config.PRSStatsCacheDatasetIDKey, "compute_cache_dataset")
 	cfg.Set(config.PRSStatsCacheTableIDKey, "prs_reference_stats_cache")
-	cfg.Set(config.AlleleFreqSourceTypeKey, "bigquery_gnomad")
-	cfg.Set(config.AlleleFreqSourceGCPProjectIDKey, "bigquery-public-data")
-	cfg.Set(config.AlleleFreqSourceDatasetIDPatternKey, "gnomAD")
-	cfg.Set(config.AlleleFreqSourceTableIDPatternKey, "genomes_v3_GRCh38")
-	cfg.Set(config.AlleleFreqSourceAncestryMappingKey, map[string]string{"EUR": "AF_nfe"})
-	cfg.Set(config.PRSModelSourceTypeKey, "file")
-	cfg.Set(config.PRSModelSourcePathOrTableURIKey, "./testdata/test_prs_model.tsv")
-	cfg.Set(config.PRSModelSNPIDColKey, "snp_id")
-	cfg.Set(config.PRSModelEffectAlleleColKey, "effect_allele")
-	cfg.Set(config.PRSModelOtherAlleleColKey, "other_allele")
-	cfg.Set(config.PRSModelWeightColKey, "effect_weight")
-	cfg.Set(config.ReferenceGenomeBuildKey, "GRCh38")
 
 	// This test would involve:
 	// 1. Setting up a mock BigQuery client that can handle both the computation and the caching

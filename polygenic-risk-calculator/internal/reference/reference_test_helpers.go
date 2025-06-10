@@ -2,11 +2,19 @@
 package reference
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
+	"cloud.google.com/go/bigquery"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/api/option"
+	"phite.io/polygenic-risk-calculator/internal/config"
 	"phite.io/polygenic-risk-calculator/internal/dbutil"
 )
 
@@ -40,56 +48,106 @@ type BQQueryResponse struct {
 	NumDMLAffectedRows  string         `json:"numDmlAffectedRows,omitempty"`
 }
 
-// BigQueryRow represents the structure of a row returned by the mocked BigQuery query for PRS stats.
-// This needs to match what the actual GetPRSReferenceStats function expects to parse.
-type BigQueryRow struct {
-	MeanPRS   float64 `bigquery:"mean_prs"`
-	StdDevPRS float64 `bigquery:"stddev_prs"`
-	Quantiles string  `bigquery:"quantiles"` // Assuming quantiles might be stored as JSON string or similar
+// NewMockBigQueryClient creates a mock BigQuery client for testing.
+// It sets up a mock HTTP server that returns a simple JSON response.
+func NewMockBigQueryClient(t *testing.T, projectID string) *bigquery.Client {
+	t.Helper()
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "{}") // Minimal valid JSON response
+	}))
+	t.Cleanup(func() { mockServer.Close() })
+
+	bqClient, err := bigquery.NewClient(context.Background(), projectID,
+		option.WithEndpoint(mockServer.URL),
+		option.WithoutAuthentication(),
+		option.WithHTTPClient(mockServer.Client()),
+	)
+	require.NoError(t, err, "Failed to create mock BigQuery client")
+	return bqClient
 }
 
-// SetupReferenceDuckDB creates a DuckDB database with reference stats for testing.
-// It returns the path to the database and a cleanup function.
-func SetupReferenceDuckDB(t *testing.T) (string, func()) {
+// NewMockBigQueryServer creates a mock HTTP server for BigQuery testing.
+// It returns the server and a cleanup function.
+func NewMockBigQueryServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(func() { server.Close() })
+	return server
+}
+
+// SetupBasicTestConfig creates a basic viper configuration with common test values.
+func SetupBasicTestConfig(t *testing.T) *viper.Viper {
+	t.Helper()
+	cfg := viper.New()
+
+	// Common configuration values used in tests
+	cfg.Set(config.PRSStatsCacheGCPProjectIDKey, "test-gcp-project")
+	cfg.Set(config.PRSStatsCacheDatasetIDKey, "test_dataset")
+	cfg.Set(config.PRSStatsCacheTableIDKey, "test_prs_cache_table")
+	cfg.Set(config.ReferenceGenomeBuildKey, "GRCh38")
+
+	return cfg
+}
+
+// SetupPRSModelTestConfig extends the basic configuration with PRS model specific settings.
+func SetupPRSModelTestConfig(t *testing.T, baseConfig *viper.Viper) *viper.Viper {
 	t.Helper()
 
-	// Create a temporary directory for the test database
+	// If no base config is provided, create a new one with basic settings
+	cfg := baseConfig
+	if cfg == nil {
+		cfg = SetupBasicTestConfig(t)
+	}
+
+	// Add PRS model specific configuration
+	cfg.Set(config.AlleleFreqSourceTypeKey, "bigquery_gnomad")
+	cfg.Set(config.AlleleFreqSourceGCPProjectIDKey, "bigquery-public-data")
+	cfg.Set(config.AlleleFreqSourceDatasetIDPatternKey, "gnomAD")
+	cfg.Set(config.AlleleFreqSourceTableIDPatternKey, "genomes_v3_GRCh38")
+	cfg.Set(config.AlleleFreqSourceAncestryMappingKey, map[string]string{"EUR": "AF_nfe", "AFR": "AF_afr"})
+	cfg.Set(config.PRSModelSourceTypeKey, "file")
+	cfg.Set(config.PRSModelSourcePathOrTableURIKey, "./testdata/test_prs_model.tsv")
+	cfg.Set(config.PRSModelSNPIDColKey, "snp_id")
+	cfg.Set(config.PRSModelEffectAlleleColKey, "effect_allele")
+	cfg.Set(config.PRSModelOtherAlleleColKey, "other_allele")
+	cfg.Set(config.PRSModelWeightColKey, "effect_weight")
+
+	return cfg
+}
+
+// SetupPRSModelDuckDB creates a temporary DuckDB database with a PRS model table for testing.
+// It returns the path to the database and a cleanup function.
+func SetupPRSModelDuckDB(t *testing.T) (string, func()) {
+	t.Helper()
 	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "reference_test.duckdb")
+	dbPath := filepath.Join(tempDir, "test_prs_model.duckdb")
 
-	// Open database connection
+	// Create a temporary DuckDB database with a PRS model table
 	db, err := dbutil.OpenDuckDB(dbPath)
-	require.NoError(t, err, "Failed to create test DuckDB database")
+	require.NoError(t, err, "Failed to open DuckDB")
+	defer db.Close()
 
-	// Create test tables
+	// Create a PRS model table with all required columns
 	_, err = db.Exec(`
-		CREATE TABLE reference_stats (
-			ancestry TEXT,
-			trait TEXT,
-			model TEXT,
-			mean DOUBLE,
-			std DOUBLE,
-			min DOUBLE,
-			max DOUBLE,
-			quantiles TEXT
+		CREATE TABLE prs_model (
+			snp_id VARCHAR,
+			effect_allele CHAR(1),
+			other_allele CHAR(1),
+			effect_weight DOUBLE,
+			chromosome VARCHAR,
+			position INTEGER
 		);
-	`)
-	require.NoError(t, err, "Failed to create reference_stats table")
 
-	// Insert test data
-	_, err = db.Exec(`
-		INSERT INTO reference_stats
-		(ancestry, trait, model, mean, std, min, max, quantiles)
-		VALUES
-		('EUR', 'height', 'v1', 1.2, 0.5, -2.0, 2.0, '{"q5":0.05,"q95":0.95}'),
-		('AFR', 'height', 'v1', 1.0, 0.4, -1.8, 1.8, '{"q5":0.03,"q95":0.93}');
+		INSERT INTO prs_model VALUES
+			('rs123', 'A', 'G', 0.1, '1', 1000000),
+			('rs456', 'T', 'C', -0.2, '2', 2000000),
+			('rs789', 'G', 'A', 0.3, '3', 3000000);
 	`)
-	require.NoError(t, err, "Failed to insert test data")
-
-	db.Close()
+	require.NoError(t, err, "Failed to create and populate PRS model table")
 
 	return dbPath, func() {
-		// Database will be automatically deleted when the temporary directory is cleaned up
+		// tempDir is cleaned up automatically by t.TempDir()
 	}
 }
 
@@ -120,4 +178,31 @@ func CreateMockBQResponse(stats map[string]float64) BQQueryResponse {
 			},
 		},
 	}
+}
+
+// NewMockBigQueryClientWithResponse creates a mock BigQuery client that returns a predefined response.
+// This is useful for testing functions that query BigQuery and expect a specific result.
+func NewMockBigQueryClientWithResponse(t *testing.T, projectID string, stats map[string]float64) *bigquery.Client {
+	t.Helper()
+
+	// Create the mock response
+	mockResponse := CreateMockBQResponse(stats)
+
+	// Set up a mock server that returns the response
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		responseBytes, err := json.Marshal(mockResponse)
+		require.NoError(t, err, "Failed to marshal mock BQ response")
+		w.Write(responseBytes)
+	}))
+	t.Cleanup(func() { mockServer.Close() })
+
+	// Create a BigQuery client that uses the mock server
+	bqClient, err := bigquery.NewClient(context.Background(), projectID,
+		option.WithEndpoint(mockServer.URL),
+		option.WithoutAuthentication(),
+		option.WithHTTPClient(mockServer.Client()),
+	)
+	require.NoError(t, err, "Failed to create mock BigQuery client with response")
+	return bqClient
 }
