@@ -3,7 +3,6 @@ package reference
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +10,6 @@ import (
 	"testing"
 
 	"cloud.google.com/go/bigquery"
-	"github.com/spf13/viper"
 	"google.golang.org/api/option"
 	"phite.io/polygenic-risk-calculator/internal/config"
 	"phite.io/polygenic-risk-calculator/internal/model"
@@ -76,32 +74,18 @@ func TestComputeAndCachePRSReferenceStats_Success(t *testing.T) {
 }
 
 func TestGetPRSReferenceStats_CacheHit(t *testing.T) {
-	cfg := viper.New()
+	// Set up test parameters
 	cacheProjectID := "cache-hit-project"
 	cacheDatasetID := "cache_hit_dataset"
 	cacheTableID := "prs_reference_stats_cache"
-	cfg.Set(config.PRSStatsCacheGCPProjectIDKey, cacheProjectID)
-	cfg.Set(config.PRSStatsCacheDatasetIDKey, cacheDatasetID)
-	cfg.Set(config.PRSStatsCacheTableIDKey, cacheTableID)
-	cfg.Set(config.AlleleFreqSourceTypeKey, "bigquery_gnomad")
-	cfg.Set(config.AlleleFreqSourceGCPProjectIDKey, "bigquery-public-data")
-	cfg.Set(config.AlleleFreqSourceDatasetIDPatternKey, "gnomAD")
-	cfg.Set(config.AlleleFreqSourceTableIDPatternKey, "genomes_v3_GRCh38")
-	cfg.Set(config.AlleleFreqSourceAncestryMappingKey, map[string]string{"EUR": "AF_nfe"})
-	cfg.Set(config.PRSModelSourceTypeKey, "file")
-	cfg.Set(config.PRSModelSourcePathOrTableURIKey, "/test/models")
-	cfg.Set(config.PRSModelSNPIDColKey, "snp_id")
-	cfg.Set(config.PRSModelEffectAlleleColKey, "effect_allele")
-	cfg.Set(config.PRSModelOtherAlleleColKey, "other_allele")
-	cfg.Set(config.PRSModelWeightColKey, "effect_weight")
-	cfg.Set(config.PRSModelChromosomeColKey, "chromosome")
-	cfg.Set(config.PRSModelPositionColKey, "position")
-	cfg.Set(config.ReferenceGenomeBuildKey, "GRCh38")
-
 	testTrait := "test_trait_cache_hit"
 	testModelID := "pgs000XYZ_cache_hit"
 	testAncestry := "EUR"
 
+	// Use our helper function to set up the configuration
+	cfg := SetupCacheHitTestConfig(t, cacheProjectID, cacheDatasetID, cacheTableID)
+
+	// Define the expected statistics
 	expectedStats := model.ReferenceStats{
 		Mean:     0.123,
 		Std:      0.045,
@@ -125,35 +109,8 @@ func TestGetPRSReferenceStats_CacheHit(t *testing.T) {
 			strings.Contains(string(reqBody), testAncestry) &&
 			strings.Contains(string(reqBody), testTrait) &&
 			strings.Contains(string(reqBody), testModelID) {
-			// Return a response that indicates a cache hit
-			response := BQQueryResponse{
-				Kind: "bigquery#queryResponse",
-				Schema: BQSchema{Fields: []BQFieldSchema{
-					{Name: "mean_prs", Type: "FLOAT"},
-					{Name: "stddev_prs", Type: "FLOAT"},
-					{Name: "min_prs", Type: "FLOAT"},
-					{Name: "max_prs", Type: "FLOAT"},
-					{Name: "quantiles", Type: "STRING"},
-					{Name: "ancestry", Type: "STRING"},
-					{Name: "trait", Type: "STRING"},
-					{Name: "model", Type: "STRING"},
-				}},
-				JobReference: BQJobReference{ProjectID: cacheProjectID, JobID: "job123"},
-				TotalRows:    "1",
-				Rows: []BQRow{{F: []BQCell{
-					{V: fmt.Sprintf("%f", expectedStats.Mean)},
-					{V: fmt.Sprintf("%f", expectedStats.Std)},
-					{V: fmt.Sprintf("%f", expectedStats.Min)},
-					{V: fmt.Sprintf("%f", expectedStats.Max)},
-					{V: `{"q5":0.05,"q95":0.95}`}, // Properly formatted JSON for quantiles
-					{V: expectedStats.Ancestry},
-					{V: expectedStats.Trait},
-					{V: expectedStats.Model},
-				}}},
-				JobComplete:         true,
-				CacheHit:            true,
-				TotalBytesProcessed: "0",
-			}
+			// Return a response that indicates a cache hit using our helper function
+			response := CreateMockBQResponseForStats(expectedStats)
 			responseJSON, err := json.Marshal(response)
 			if err != nil {
 				t.Fatalf("Failed to marshal mock response: %v", err)
@@ -179,6 +136,7 @@ func TestGetPRSReferenceStats_CacheHit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create dummy BigQuery client: %v", err)
 	}
+	t.Cleanup(func() { mockServer.Close() })
 
 	// Create the PRSReferenceDataSource with the mock BigQuery client
 	dataSource, err := NewPRSReferenceDataSource(cfg, bqClient)

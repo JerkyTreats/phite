@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/bigquery"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/api/option"
 	"phite.io/polygenic-risk-calculator/internal/config"
 	"phite.io/polygenic-risk-calculator/internal/dbutil"
+	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
 // Structs for BQ QueryResponse, shared across tests
@@ -79,7 +81,7 @@ func NewMockBigQueryServer(t *testing.T, handler http.Handler) *httptest.Server 
 // SetupBasicTestConfig creates a basic viper configuration with common test values.
 func SetupBasicTestConfig(t *testing.T) *viper.Viper {
 	t.Helper()
-	cfg := viper.New()
+	cfg := newTestConfig()
 
 	// Common configuration values used in tests
 	cfg.Set(config.PRSStatsCacheGCPProjectIDKey, "test-gcp-project")
@@ -151,6 +153,34 @@ func SetupPRSModelDuckDB(t *testing.T) (string, func()) {
 	}
 }
 
+// SetupIncompleteModelDuckDB creates a temporary DuckDB database with an incomplete PRS model table for testing.
+// This is useful for testing error cases where required columns are missing.
+func SetupIncompleteModelDuckDB(t *testing.T) (string, func()) {
+	t.Helper()
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "missing_columns.duckdb")
+
+	// Create a temporary DuckDB database with a table missing required columns
+	db, err := dbutil.OpenDuckDB(dbPath)
+	require.NoError(t, err, "Failed to open DuckDB")
+	defer db.Close()
+
+	// Create table missing the weight column
+	_, err = db.Exec(`
+		CREATE TABLE incomplete_model (
+			snp_id VARCHAR,
+			effect_allele CHAR(1),
+			other_allele CHAR(1)
+			-- missing effect_weight column
+		);
+	`)
+	require.NoError(t, err, "Failed to create incomplete model table")
+
+	return dbPath, func() {
+		// tempDir is cleaned up automatically by t.TempDir()
+	}
+}
+
 // CreateMockBQResponse creates a mock BigQuery response for testing.
 func CreateMockBQResponse(stats map[string]float64) BQQueryResponse {
 	return BQQueryResponse{
@@ -205,4 +235,142 @@ func NewMockBigQueryClientWithResponse(t *testing.T, projectID string, stats map
 	)
 	require.NoError(t, err, "Failed to create mock BigQuery client with response")
 	return bqClient
+}
+
+// SetupDuckDBPRSModelTestConfig creates a configuration specifically for DuckDB PRS model tests.
+// It extends the basic PRS model configuration with DuckDB-specific settings.
+func SetupDuckDBPRSModelTestConfig(t *testing.T, dbPath string, tableName string) *viper.Viper {
+	t.Helper()
+
+	// Start with the base PRS model config
+	cfg := SetupPRSModelTestConfig(t, nil)
+
+	// Add DuckDB-specific settings
+	cfg.Set(config.PRSModelSourceTypeKey, "duckdb")
+	cfg.Set(config.PRSModelSourcePathOrTableURIKey, dbPath)
+	if tableName != "" {
+		cfg.Set(config.PRSModelSourceTableNameKey, tableName)
+	}
+
+	// These settings are needed for the PRSReferenceDataSource but not directly for DuckDB tests
+	// They are part of the basic config required by the data source
+	cfg.Set(config.PRSStatsCacheGCPProjectIDKey, "test-project")
+	cfg.Set(config.PRSStatsCacheDatasetIDKey, "test_dataset")
+	cfg.Set(config.PRSStatsCacheTableIDKey, "test_table")
+	cfg.Set(config.AlleleFreqSourceGCPProjectIDKey, "test-project")
+	cfg.Set(config.AlleleFreqSourceDatasetIDPatternKey, "test_pattern")
+	cfg.Set(config.AlleleFreqSourceTableIDPatternKey, "test_table_pattern")
+	cfg.Set(config.AlleleFreqSourceAncestryMappingKey, map[string]string{"EUR": "nfe"})
+
+	return cfg
+}
+
+// SetupCacheHitTestConfig creates a configuration specifically for PRS reference cache hit tests.
+// It extends the basic PRS model configuration with cache-specific settings.
+func SetupCacheHitTestConfig(t *testing.T, cacheProjectID, cacheDatasetID, cacheTableID string) *viper.Viper {
+	t.Helper()
+
+	// Start with the base PRS model config
+	cfg := SetupPRSModelTestConfig(t, nil)
+
+	// Override the cache settings
+	cfg.Set(config.PRSStatsCacheGCPProjectIDKey, cacheProjectID)
+	cfg.Set(config.PRSStatsCacheDatasetIDKey, cacheDatasetID)
+	cfg.Set(config.PRSStatsCacheTableIDKey, cacheTableID)
+
+	// Add specific settings for the cache hit test
+	cfg.Set(config.PRSModelSourcePathOrTableURIKey, "/test/models")
+	cfg.Set(config.PRSModelChromosomeColKey, "chromosome")
+	cfg.Set(config.PRSModelPositionColKey, "position")
+
+	return cfg
+}
+
+// CreateMockBQResponseForStats creates a mock BigQuery response for a specific ReferenceStats object.
+// This is useful for testing cache hits with complete reference stats.
+func CreateMockBQResponseForStats(stats model.ReferenceStats) BQQueryResponse {
+	return BQQueryResponse{
+		Kind: "bigquery#queryResponse",
+		Schema: BQSchema{Fields: []BQFieldSchema{
+			{Name: "mean_prs", Type: "FLOAT"},
+			{Name: "stddev_prs", Type: "FLOAT"},
+			{Name: "min_prs", Type: "FLOAT"},
+			{Name: "max_prs", Type: "FLOAT"},
+			{Name: "quantiles", Type: "STRING"},
+			{Name: "ancestry", Type: "STRING"},
+			{Name: "trait", Type: "STRING"},
+			{Name: "model", Type: "STRING"},
+		}},
+		JobReference: BQJobReference{ProjectID: "test-project", JobID: "job123"},
+		TotalRows:    "1",
+		Rows: []BQRow{{F: []BQCell{
+			{V: fmt.Sprintf("%f", stats.Mean)},
+			{V: fmt.Sprintf("%f", stats.Std)},
+			{V: fmt.Sprintf("%f", stats.Min)},
+			{V: fmt.Sprintf("%f", stats.Max)},
+			{V: `{"q5":0.05,"q95":0.95}`}, // Hardcoded quantiles
+			{V: stats.Ancestry},
+			{V: stats.Trait},
+			{V: stats.Model},
+		}}},
+		JobComplete:         true,
+		CacheHit:            true,
+		TotalBytesProcessed: "0",
+	}
+}
+
+// SetupReferenceDataSourceTestConfig creates a configuration specifically for PRS reference data source tests.
+// It extends the basic configuration with gnomAD and PRS model settings needed for the data source.
+func SetupReferenceDataSourceTestConfig(t *testing.T, suffix string) *viper.Viper {
+	t.Helper()
+
+	// Start with the basic configuration
+	cfg := SetupBasicTestConfig(t)
+
+	// Add gnomAD settings with optional suffix for unique test cases
+	suffix = strings.TrimSpace(suffix)
+	projectSuffix := ""
+	if suffix != "" {
+		projectSuffix = "-" + suffix
+	}
+	patternSuffix := ""
+	if suffix != "" {
+		patternSuffix = "_" + suffix
+	}
+
+	// Configure project IDs with suffixes
+	cfg.Set(config.PRSStatsCacheGCPProjectIDKey, "test-gcp-project"+projectSuffix)
+	cfg.Set(config.PRSStatsCacheDatasetIDKey, "test_dataset"+patternSuffix)
+	cfg.Set(config.PRSStatsCacheTableIDKey, "test_prs_cache_table"+patternSuffix)
+
+	// Configure allele frequency source
+	cfg.Set(config.AlleleFreqSourceTypeKey, "gnomad_bigquery")
+	cfg.Set(config.AlleleFreqSourceGCPProjectIDKey, "gnomad-gcp-project"+projectSuffix)
+	cfg.Set(config.AlleleFreqSourceDatasetIDPatternKey, "gnomad_r{version}_grch{build}"+patternSuffix)
+	cfg.Set(config.AlleleFreqSourceTableIDPatternKey, "gnomad_exomes_r{version}_grch{build}_{ancestry}"+patternSuffix)
+
+	// Set up ancestry mapping
+	var ancestryMap map[string]string
+	if suffix == "" {
+		ancestryMap = map[string]string{"EUR": "nfe", "AFR": "afr"}
+	} else {
+		ancestryMap = map[string]string{"EUR": "nfe" + patternSuffix, "AFR": "afr" + patternSuffix}
+	}
+	cfg.Set(config.AlleleFreqSourceAncestryMappingKey, ancestryMap)
+
+	// Configure PRS model source
+	cfg.Set(config.PRSModelSourceTypeKey, "file_system"+patternSuffix)
+	cfg.Set(config.PRSModelSourcePathOrTableURIKey, "./testdata/prs_models"+patternSuffix)
+
+	return cfg
+}
+
+// Helper function to create a new config for testing.
+// This function creates a new Viper instance for testing, but in the future
+// we could refactor this to use the config package's methods directly.
+//
+// TODO: Refactor to use the config package's methods directly, once it provides
+// a way to create a new config instance for testing that doesn't rely on global state.
+func newTestConfig() *viper.Viper {
+	return viper.New()
 }

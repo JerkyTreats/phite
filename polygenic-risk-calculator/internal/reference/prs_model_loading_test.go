@@ -3,13 +3,14 @@ package reference
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
-	"github.com/spf13/viper"
 	"phite.io/polygenic-risk-calculator/internal/config"
-	"phite.io/polygenic-risk-calculator/internal/dbutil"
 )
+
+// Make sure we run this test with the entire package so we have access to other functions
+// that are not explicitly imported:
+// go test -v ./internal/reference/...
 
 // Using the common test helpers instead of local helper functions
 
@@ -21,30 +22,15 @@ func TestLoadPRSModel_DuckDB(t *testing.T) {
 	mockBQClient := NewMockBigQueryClient(t, "test-bq-project")
 
 	t.Run("successful load all fields", func(t *testing.T) {
-		cfg := SetupPRSModelTestConfig(t, nil)
 		dbPath, cleanup := SetupPRSModelDuckDB(t)
 		defer cleanup()
 
-		cfg.Set(config.PRSModelSourceTypeKey, "duckdb")
-		cfg.Set(config.PRSModelSourcePathOrTableURIKey, dbPath)
-		// cfg.Set(config.PRSModelTableNameKey, "prs_model")
-		cfg.Set(config.PRSModelSNPIDColKey, "snp_id")
-		cfg.Set(config.PRSModelEffectAlleleColKey, "effect_allele")
-		cfg.Set(config.PRSModelOtherAlleleColKey, "other_allele")
-		cfg.Set(config.PRSModelWeightColKey, "effect_weight")
+		// Use the new helper function to set up the configuration
+		cfg := SetupDuckDBPRSModelTestConfig(t, dbPath, "")
+
+		// Add specific settings for this test case
 		cfg.Set(config.PRSModelChromosomeColKey, "chromosome")
 		cfg.Set(config.PRSModelPositionColKey, "position")
-		cfg.Set(config.ReferenceGenomeBuildKey, "GRCh38")
-
-		// Additional required configs for PRSReferenceDataSource
-		cfg.Set(config.PRSStatsCacheGCPProjectIDKey, "test-project")
-		cfg.Set(config.PRSStatsCacheDatasetIDKey, "test_dataset")
-		cfg.Set(config.PRSStatsCacheTableIDKey, "test_table")
-		cfg.Set(config.AlleleFreqSourceTypeKey, "bigquery_gnomad")
-		cfg.Set(config.AlleleFreqSourceGCPProjectIDKey, "test-project")
-		cfg.Set(config.AlleleFreqSourceDatasetIDPatternKey, "test_pattern")
-		cfg.Set(config.AlleleFreqSourceTableIDPatternKey, "test_table_pattern")
-		cfg.Set(config.AlleleFreqSourceAncestryMappingKey, map[string]string{"EUR": "nfe"})
 
 		ds, err := NewPRSReferenceDataSource(cfg, mockBQClient)
 		if err != nil {
@@ -83,28 +69,11 @@ func TestLoadPRSModel_DuckDB(t *testing.T) {
 	})
 
 	t.Run("missing table returns error", func(t *testing.T) {
-		cfg := SetupPRSModelTestConfig(t, nil)
 		dbPath, cleanup := SetupPRSModelDuckDB(t)
 		defer cleanup()
 
-		cfg.Set(config.PRSModelSourceTypeKey, "duckdb")
-		cfg.Set(config.PRSModelSourcePathOrTableURIKey, dbPath)
-		cfg.Set(config.PRSModelSourceTableNameKey, "nonexistent_table") // Table doesn't exist
-		cfg.Set(config.PRSModelSNPIDColKey, "snp_id")
-		cfg.Set(config.PRSModelEffectAlleleColKey, "effect_allele")
-		cfg.Set(config.PRSModelOtherAlleleColKey, "other_allele")
-		cfg.Set(config.PRSModelWeightColKey, "effect_weight")
-		cfg.Set(config.ReferenceGenomeBuildKey, "GRCh38")
-
-		// Additional required configs for PRSReferenceDataSource
-		cfg.Set(config.PRSStatsCacheGCPProjectIDKey, "test-project")
-		cfg.Set(config.PRSStatsCacheDatasetIDKey, "test_dataset")
-		cfg.Set(config.PRSStatsCacheTableIDKey, "test_table")
-		cfg.Set(config.AlleleFreqSourceTypeKey, "bigquery_gnomad")
-		cfg.Set(config.AlleleFreqSourceGCPProjectIDKey, "test-project")
-		cfg.Set(config.AlleleFreqSourceDatasetIDPatternKey, "test_pattern")
-		cfg.Set(config.AlleleFreqSourceTableIDPatternKey, "test_table_pattern")
-		cfg.Set(config.AlleleFreqSourceAncestryMappingKey, map[string]string{"EUR": "nfe"})
+		// Use the helper function with a nonexistent table name
+		cfg := SetupDuckDBPRSModelTestConfig(t, dbPath, "nonexistent_table")
 
 		ds, err := NewPRSReferenceDataSource(cfg, mockBQClient)
 		if err != nil {
@@ -118,48 +87,12 @@ func TestLoadPRSModel_DuckDB(t *testing.T) {
 	})
 
 	t.Run("missing required columns returns error", func(t *testing.T) {
-		// Create a new DB with a table missing required columns
-		tempDir := t.TempDir()
-		dbPath := filepath.Join(tempDir, "missing_columns.duckdb")
+		// Use the helper function to create a DB with a table missing required columns
+		dbPath, cleanup := SetupIncompleteModelDuckDB(t)
+		defer cleanup()
 
-		db, err := dbutil.OpenDuckDB(dbPath)
-		if err != nil {
-			t.Fatalf("Failed to open DuckDB at %s: %v", dbPath, err)
-		}
-
-		// Create table missing the weight column
-		_, err = db.Exec(`
-			CREATE TABLE incomplete_model (
-				snp_id VARCHAR,
-				effect_allele CHAR(1),
-				other_allele CHAR(1)
-				-- missing effect_weight column
-			);
-		`)
-		if err != nil {
-			t.Fatalf("Failed to create incomplete model table: %v", err)
-		}
-		db.Close()
-
-		cfg := viper.New()
-		cfg.Set(config.PRSModelSourceTypeKey, "duckdb")
-		cfg.Set(config.PRSModelSourcePathOrTableURIKey, dbPath)
-		cfg.Set(config.PRSModelSourceTableNameKey, "incomplete_model")
-		cfg.Set(config.PRSModelSNPIDColKey, "snp_id")
-		cfg.Set(config.PRSModelEffectAlleleColKey, "effect_allele")
-		cfg.Set(config.PRSModelOtherAlleleColKey, "other_allele")
-		cfg.Set(config.PRSModelWeightColKey, "effect_weight") // This column is missing
-		cfg.Set(config.ReferenceGenomeBuildKey, "GRCh38")
-
-		// Additional required configs for PRSReferenceDataSource
-		cfg.Set(config.PRSStatsCacheGCPProjectIDKey, "test-project")
-		cfg.Set(config.PRSStatsCacheDatasetIDKey, "test_dataset")
-		cfg.Set(config.PRSStatsCacheTableIDKey, "test_table")
-		cfg.Set(config.AlleleFreqSourceTypeKey, "bigquery_gnomad")
-		cfg.Set(config.AlleleFreqSourceGCPProjectIDKey, "test-project")
-		cfg.Set(config.AlleleFreqSourceDatasetIDPatternKey, "test_pattern")
-		cfg.Set(config.AlleleFreqSourceTableIDPatternKey, "test_table_pattern")
-		cfg.Set(config.AlleleFreqSourceAncestryMappingKey, map[string]string{"EUR": "nfe"})
+		// Set up the configuration
+		cfg := SetupDuckDBPRSModelTestConfig(t, dbPath, "incomplete_model")
 
 		ds, err := NewPRSReferenceDataSource(cfg, mockBQClient)
 		if err != nil {
