@@ -69,15 +69,6 @@ func NewMockBigQueryClient(t *testing.T, projectID string) *bigquery.Client {
 	return bqClient
 }
 
-// NewMockBigQueryServer creates a mock HTTP server for BigQuery testing.
-// It returns the server and a cleanup function.
-func NewMockBigQueryServer(t *testing.T, handler http.Handler) *httptest.Server {
-	t.Helper()
-	server := httptest.NewServer(handler)
-	t.Cleanup(func() { server.Close() })
-	return server
-}
-
 // SetupBasicTestConfig creates a basic viper configuration with common test values.
 func SetupBasicTestConfig(t *testing.T) *viper.Viper {
 	t.Helper()
@@ -373,4 +364,87 @@ func SetupReferenceDataSourceTestConfig(t *testing.T, suffix string) *viper.Vipe
 // a way to create a new config instance for testing that doesn't rely on global state.
 func newTestConfig() *viper.Viper {
 	return viper.New()
+}
+
+// GetTestPRSModelDuckDBPath returns the path to the test DuckDB file containing PRS model data.
+// This leverages the existing testdata/reference_stats.duckdb file instead of creating a temporary one.
+func GetTestPRSModelDuckDBPath() string {
+	return filepath.Join("testdata", "reference_stats.duckdb")
+}
+
+// SetupTestModelWithExistingDuckDB creates a configuration that uses the existing DuckDB file
+// in the testdata directory. This is more efficient than creating a temporary database.
+func SetupTestModelWithExistingDuckDB(t *testing.T) *viper.Viper {
+	t.Helper()
+
+	// Start with the base PRS model config
+	cfg := SetupPRSModelTestConfig(t, nil)
+
+	// Point to the existing DuckDB file in testdata
+	dbPath := GetTestPRSModelDuckDBPath()
+
+	// Add DuckDB-specific settings
+	cfg.Set(config.PRSModelSourceTypeKey, "duckdb")
+	cfg.Set(config.PRSModelSourcePathOrTableURIKey, dbPath)
+	cfg.Set(config.PRSModelSourceTableNameKey, "model_variants")
+	cfg.Set(config.PRSModelSourceModelIDColKey, "model_id")
+	cfg.Set(config.PRSModelSNPIDColKey, "snp_id")
+	cfg.Set(config.PRSModelChromosomeColKey, "chrom")
+	cfg.Set(config.PRSModelPositionColKey, "pos")
+	cfg.Set(config.PRSModelEffectAlleleColKey, "effect_allele")
+	cfg.Set(config.PRSModelOtherAlleleColKey, "other_allele")
+	cfg.Set(config.PRSModelWeightColKey, "weight")
+
+	return cfg
+}
+
+// GetReferenceStatsFromTestDB retrieves a specific reference stat from the test database.
+// This is useful for tests that need to verify calculations against known reference values.
+func GetReferenceStatsFromTestDB(t *testing.T, ancestry, trait, model string) (map[string]float64, error) {
+	t.Helper()
+
+	// Open the test DuckDB database
+	dbPath := GetTestPRSModelDuckDBPath()
+	db, err := dbutil.OpenDuckDB(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open test DuckDB: %w", err)
+	}
+	defer db.Close()
+
+	// Query the reference_stats table
+	query := `SELECT mean, std, min, max FROM reference_stats
+		  WHERE ancestry = ? AND trait = ? AND model = ?`
+
+	var mean, std, min, max float64
+	err = db.QueryRow(query, ancestry, trait, model).Scan(&mean, &std, &min, &max)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query reference stats: %w", err)
+	}
+
+	// Return the stats as a map
+	return map[string]float64{
+		"mean_prs":   mean,
+		"stddev_prs": std,
+		"min_prs":    min,
+		"max_prs":    max,
+		"q5":         mean - 1.645*std, // Approximate 5th percentile for normal distribution
+		"q95":        mean + 1.645*std, // Approximate 95th percentile for normal distribution
+	}, nil
+}
+
+// GetTestdataPath returns the path to a file in the testdata directory.
+// This is a convenience function to make it easier to reference test files.
+func GetTestdataPath(filename string) string {
+	return filepath.Join("testdata", filename)
+}
+
+// CreateTemporaryDuckDBForTest is a wrapper around SetupPRSModelDuckDB and SetupIncompleteModelDuckDB.
+// It decides whether to create a complete or incomplete model based on the includeAllColumns parameter.
+// This is a convenience function to make test code more readable.
+func CreateTemporaryDuckDBForTest(t *testing.T, includeAllColumns bool) (string, func()) {
+	t.Helper()
+	if includeAllColumns {
+		return SetupPRSModelDuckDB(t)
+	}
+	return SetupIncompleteModelDuckDB(t)
 }

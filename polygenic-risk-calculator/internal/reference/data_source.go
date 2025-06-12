@@ -18,7 +18,6 @@ import (
 // PRSReferenceDataSource provides access to PRS reference statistics.
 // It can fetch from a BigQuery cache or compute them on the fly if not cached.
 type PRSReferenceDataSource struct {
-	config                           *viper.Viper
 	bqClient                         *bigquery.Client
 	cacheProjectID                   string
 	cacheDatasetID                   string
@@ -73,9 +72,6 @@ func NewPRSReferenceDataSource(cfg *viper.Viper, bqClient *bigquery.Client) (*PR
 	if bqClient == nil {
 		return nil, fmt.Errorf("BigQuery client cannot be nil")
 	}
-	if cfg == nil {
-		return nil, fmt.Errorf("viper config cannot be nil")
-	}
 
 	// Configuration keys are validated globally by config.Validate(),
 	// so we assume they are present here.
@@ -117,7 +113,6 @@ func NewPRSReferenceDataSource(cfg *viper.Viper, bqClient *bigquery.Client) (*PR
 	prsModelRSIDCol := cfg.GetString(config.PRSModelSourceRSIDColKey)
 
 	return &PRSReferenceDataSource{
-		config:                           cfg,
 		bqClient:                         bqClient,
 		cacheProjectID:                   cacheProjectID,
 		cacheDatasetID:                   cacheDatasetID,

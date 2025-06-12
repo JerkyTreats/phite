@@ -28,11 +28,11 @@ type ReferenceStats struct {
 
 // ReferenceStatsLoader implements ReferenceStatsBackend using a BigQuery clientset.
 type ReferenceStatsLoader struct {
-	client *bigqueryclientset.Client
+	client *bigqueryclientset.BQClient
 }
 
 // NewReferenceStatsLoader returns a new ReferenceStatsLoader using the provided clientset.
-func NewReferenceStatsLoader(client *bigqueryclientset.Client) *ReferenceStatsLoader {
+func NewReferenceStatsLoader(client *bigqueryclientset.BQClient) *ReferenceStatsLoader {
 	return &ReferenceStatsLoader{client: client}
 }
 

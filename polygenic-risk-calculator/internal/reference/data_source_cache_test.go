@@ -1,16 +1,8 @@
 package reference
 
 import (
-	"context"
-	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"testing"
 
-	"cloud.google.com/go/bigquery"
-	"google.golang.org/api/option"
 	"phite.io/polygenic-risk-calculator/internal/config"
 	"phite.io/polygenic-risk-calculator/internal/model"
 )
@@ -96,47 +88,7 @@ func TestGetPRSReferenceStats_CacheHit(t *testing.T) {
 		Model:    testModelID,
 	}
 
-	// Create a mock HTTP server that simulates BigQuery API
-	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Parse the request to determine what response to send
-		reqBody, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("Failed to read mock request body: %v", err)
-		}
-
-		// If this is a query to check the cache
-		if strings.Contains(string(reqBody), cacheTableID) &&
-			strings.Contains(string(reqBody), testAncestry) &&
-			strings.Contains(string(reqBody), testTrait) &&
-			strings.Contains(string(reqBody), testModelID) {
-			// Return a response that indicates a cache hit using our helper function
-			response := CreateMockBQResponseForStats(expectedStats)
-			responseJSON, err := json.Marshal(response)
-			if err != nil {
-				t.Fatalf("Failed to marshal mock response: %v", err)
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write(responseJSON)
-		} else {
-			// For any other request, return an empty result
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"kind":"bigquery#queryResponse","schema":{"fields":[]},"jobReference":{"projectId":"dummy","jobId":"job000"},"totalRows":"0","rows":[],"jobComplete":true,"cacheHit":false}`))
-		}
-	}))
-	defer mockServer.Close()
-
-	// Create BigQuery client with the mock server
-	bqClient, err := bigquery.NewClient(context.Background(), cacheProjectID,
-		option.WithEndpoint(mockServer.URL),
-		option.WithoutAuthentication(),
-		option.WithHTTPClient(mockServer.Client()),
-	)
-	if err != nil {
-		t.Fatalf("Failed to create dummy BigQuery client: %v", err)
-	}
-	t.Cleanup(func() { mockServer.Close() })
+	bqClient := NewMockBigQueryClient(t, cacheProjectID)
 
 	// Create the PRSReferenceDataSource with the mock BigQuery client
 	dataSource, err := NewPRSReferenceDataSource(cfg, bqClient)

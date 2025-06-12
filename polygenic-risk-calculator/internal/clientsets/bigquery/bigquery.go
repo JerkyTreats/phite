@@ -15,14 +15,14 @@ import (
 // Client encapsulates config, connection, and query logic for reference stats in BigQuery.
 
 func init() {
-	config.RegisterRequiredKey("bq_project") // Project where the data resides
+	config.RegisterRequiredKey("bq_project")         // Project where the data resides
 	config.RegisterRequiredKey("bq_billing_project") // Project used for API calls and billing
 	config.RegisterRequiredKey("bq_dataset")
 	config.RegisterRequiredKey("bq_table")
 	// bq_credentials is optional
 }
 
-type Client struct {
+type BQClient struct {
 	ProjectID string
 	Dataset   string
 	Table     string
@@ -31,7 +31,7 @@ type Client struct {
 }
 
 // NewClient initializes a BigQuery client using config.go.
-func NewClient(ctx context.Context) (*Client, error) {
+func NewClient(ctx context.Context) (*BQClient, error) {
 	billingProject := config.GetString("bq_billing_project")
 	dataProject := config.GetString("bq_project") // This is the project where the data actually lives
 	dataset := config.GetString("bq_dataset")
@@ -53,7 +53,7 @@ func NewClient(ctx context.Context) (*Client, error) {
 		return nil, fmt.Errorf("failed to create BigQuery client for billing project %s: %w", billingProject, err)
 	}
 	logging.Info("BigQuery client configured for data project=%s, dataset=%s, table=%s (using billing project %s)", dataProject, dataset, table, billingProject)
-	return &Client{
+	return &BQClient{
 		ProjectID: dataProject, // This remains the project where the data is located
 		Dataset:   dataset,
 		Table:     table,
@@ -63,11 +63,11 @@ func NewClient(ctx context.Context) (*Client, error) {
 }
 
 // BigQuery returns the underlying BigQuery client.
-func (c *Client) BigQuery() *bigquery.Client {
+func (c *BQClient) BigQuery() *bigquery.Client {
 	return c.bqClient
 }
 
 // Close releases resources held by the client.
-func (c *Client) Close() error {
+func (c *BQClient) Close() error {
 	return c.bqClient.Close()
 }
