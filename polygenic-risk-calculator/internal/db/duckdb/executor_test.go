@@ -1,4 +1,4 @@
-package dbutil
+package duckdb
 
 import (
 	"database/sql"
@@ -17,7 +17,7 @@ func TestExecuteDuckDBQueryWithPath(t *testing.T) {
 	dbPath := filepath.Join(tempDir, "test_path_query.db")
 
 	// Set up test database
-	db, err := OpenDuckDB(dbPath)
+	db, err := OpenDB(dbPath)
 	require.NoError(t, err)
 
 	// Create test table
@@ -52,7 +52,7 @@ func TestExecuteDuckDBQueryWithPath(t *testing.T) {
 	t.Run("successful query execution", func(t *testing.T) {
 		query := "SELECT id, name, value FROM test_path_records WHERE id > ? ORDER BY id"
 
-		records, err := ExecuteDuckDBQueryWithPath(dbPath, query, testRecordScanner, 1)
+		records, err := ExecuteQueryWithPath(dbPath, query, testRecordScanner, 1)
 		require.NoError(t, err)
 
 		assert.Len(t, records, 2)
@@ -65,18 +65,18 @@ func TestExecuteDuckDBQueryWithPath(t *testing.T) {
 	t.Run("empty result set", func(t *testing.T) {
 		query := "SELECT id, name, value FROM test_path_records WHERE id > ?"
 
-		records, err := ExecuteDuckDBQueryWithPath(dbPath, query, testRecordScanner, 100)
+		records, err := ExecuteQueryWithPath(dbPath, query, testRecordScanner, 100)
 		require.NoError(t, err)
 		assert.Empty(t, records)
 	})
 
 	t.Run("handles db connection error", func(t *testing.T) {
-		_, err := ExecuteDuckDBQueryWithPath("/nonexistent/path.db", "SELECT 1", testRecordScanner)
+		_, err := ExecuteQueryWithPath("/nonexistent/path.db", "SELECT 1", testRecordScanner)
 		assert.Error(t, err)
 	})
 
 	t.Run("handles query execution error", func(t *testing.T) {
-		_, err := ExecuteDuckDBQueryWithPath(dbPath, "SELECT * FROM nonexistent_table", testRecordScanner)
+		_, err := ExecuteQueryWithPath(dbPath, "SELECT * FROM nonexistent_table", testRecordScanner)
 		assert.Error(t, err)
 	})
 
@@ -85,7 +85,7 @@ func TestExecuteDuckDBQueryWithPath(t *testing.T) {
 			return nil, errors.New("scanner error")
 		}
 
-		_, err := ExecuteDuckDBQueryWithPath(dbPath, "SELECT id, name, value FROM test_path_records", badScanner)
+		_, err := ExecuteQueryWithPath(dbPath, "SELECT id, name, value FROM test_path_records", badScanner)
 		assert.Error(t, err)
 	})
 }

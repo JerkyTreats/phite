@@ -1,105 +1,61 @@
 package gwas
 
 import (
-	"database/sql"
+	"context"
 	"os"
+	"strconv"
 	"strings"
 
 	"phite.io/polygenic-risk-calculator/internal/config"
+	"phite.io/polygenic-risk-calculator/internal/db"
 	"phite.io/polygenic-risk-calculator/internal/logging"
-
-	"phite.io/polygenic-risk-calculator/internal/dbutil"
 	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
-// FetchGWASRecords loads GWAS SNP records for the given rsids from DuckDB.
-// The DuckDB file path and table name can be set via environment variables (GWAS_DUCKDB, GWAS_TABLE)
-// or config keys (gwas_db_path, gwas_table). Returns a map from rsid to model.GWASSNPRecord.
-// FetchGWASRecordsWithTable loads GWAS SNP records for the given rsids from DuckDB, using the specified table.
-// The dbPath and table are required. Returns a map from rsid to model.GWASSNPRecord.
-func FetchGWASRecordsWithTable(dbPath, table string, rsids []string) (map[string]model.GWASSNPRecord, error) {
-	// Allow override from config/env
-	if dbPath == "" {
-		dbPath = os.Getenv("GWAS_DUCKDB")
-		if dbPath == "" {
-			dbPath = config.GetString("gwas_db_path")
-			if dbPath == "" {
-				dbPath = "gwas/gwas.duckdb" // project default
-			}
-		}
-	}
-	logging.Info("Opening GWAS database: %s (table: %s)", dbPath, table)
+type GWASService struct {
+	repo db.DBRepository
+}
+
+func NewGWASService(repo db.DBRepository) *GWASService {
+	return &GWASService{repo: repo}
+}
+
+// FetchGWASRecordsWithTable loads GWAS SNP records for the given rsids from the specified table using the repository abstraction.
+func (s *GWASService) FetchGWASRecordsWithTable(ctx context.Context, table string, rsids []string) (map[string]model.GWASSNPRecord, error) {
 	if len(rsids) == 0 {
 		return map[string]model.GWASSNPRecord{}, nil
 	}
-
-	// Create scanner function for converting SQL rows to GWASSNPRecord objects
-	scanner := func(rows *sql.Rows) (*model.GWASSNPRecord, error) {
-		var rec model.GWASSNPRecord
-		if err := rows.Scan(&rec.RSID, &rec.RiskAllele, &rec.Beta, &rec.Trait); err != nil {
-			logging.Error("Failed to scan GWAS row: %v", err)
-			return nil, err
-		}
-		return &rec, nil
-	}
-
-	// First validate that the table exists with required columns
-	db, err := dbutil.OpenDuckDB(dbPath)
-	if err != nil {
-		logging.Error("Failed to open GWAS DuckDB at %s: %v", dbPath, err)
-		return nil, err
-	}
-	defer db.Close()
-
-	// Validate GWAS table exists
-	err = dbutil.ValidateTable(db, table, []string{"rsid", "risk_allele", "beta", "trait"})
-	if err != nil {
-		logging.Error("GWAS table validation failed: table=%s, err=%v", table, err)
-		return nil, err
-	}
-
-	// Prepare query with IN clause
 	placeholders := make([]string, len(rsids))
 	args := make([]interface{}, len(rsids))
 	for i, rsid := range rsids {
 		placeholders[i] = "?"
 		args[i] = rsid
 	}
-	query := `SELECT rsid, risk_allele, beta, trait FROM ` + table + ` WHERE rsid IN (` + strings.Join(placeholders, ",") + ")"
+	query := "SELECT rsid, risk_allele, beta, trait FROM " + table + " WHERE rsid IN (" + strings.Join(placeholders, ",") + ")"
 	logging.Info("Executing GWAS query for %d SNPs", len(rsids))
 
-	// Use the ExecuteDuckDBQueryWithPath function to run the query
-	records, err := dbutil.ExecuteDuckDBQueryWithPath(dbPath, query, scanner, args...)
+	results, err := s.repo.Query(ctx, query, args...)
 	if err != nil {
 		logging.Error("GWAS query failed: %v", err)
 		return nil, err
 	}
 
-	// Convert results from []*model.GWASSNPRecord to map[string]model.GWASSNPRecord
-	recordMap := make(map[string]model.GWASSNPRecord, len(records))
-	for _, rec := range records {
-		if rec != nil {
-			recordMap[rec.RSID] = *rec
+	recordMap := make(map[string]model.GWASSNPRecord, len(results))
+	for _, row := range results {
+		rec := model.GWASSNPRecord{
+			RSID:       toString(row["rsid"]),
+			RiskAllele: toString(row["risk_allele"]),
+			Beta:       toFloat64(row["beta"]),
+			Trait:      toString(row["trait"]),
 		}
+		recordMap[rec.RSID] = rec
 	}
-
-	logging.Info("Loaded %d GWAS records from DuckDB", len(recordMap))
+	logging.Info("Loaded %d GWAS records from DB", len(recordMap))
 	return recordMap, nil
 }
 
-// FetchGWASRecords loads GWAS SNP records for the given rsids from DuckDB.
-// The DuckDB file path can be set via CLI, environment variables (GWAS_DUCKDB), or config keys (gwas_db_path).
-// The table name can be set via CLI, env (GWAS_TABLE), or config (gwas_table). Returns a map from rsid to model.GWASSNPRecord.
-func FetchGWASRecords(dbPath string, rsids []string) (map[string]model.GWASSNPRecord, error) {
-	if dbPath == "" {
-		dbPath = os.Getenv("GWAS_DUCKDB")
-		if dbPath == "" {
-			dbPath = config.GetString("gwas_db_path")
-			if dbPath == "" {
-				dbPath = "gwas/gwas.duckdb" // project default
-			}
-		}
-	}
+// FetchGWASRecords loads GWAS SNP records for the given rsids from the configured table using the repository abstraction.
+func (s *GWASService) FetchGWASRecords(ctx context.Context, rsids []string) (map[string]model.GWASSNPRecord, error) {
 	table := os.Getenv("GWAS_TABLE")
 	if table == "" {
 		table = config.GetString("gwas_table")
@@ -107,5 +63,49 @@ func FetchGWASRecords(dbPath string, rsids []string) (map[string]model.GWASSNPRe
 			table = "associations_clean"
 		}
 	}
-	return FetchGWASRecordsWithTable(dbPath, table, rsids)
+	return s.FetchGWASRecordsWithTable(ctx, table, rsids)
+}
+
+// Helper functions for type conversion
+func toString(val interface{}) string {
+	if val == nil {
+		return ""
+	}
+	switch v := val.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		return ""
+	}
+}
+
+func toFloat64(val interface{}) float64 {
+	if val == nil {
+		return 0
+	}
+	switch v := val.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case int32:
+		return float64(v)
+	case uint:
+		return float64(v)
+	case uint64:
+		return float64(v)
+	case uint32:
+		return float64(v)
+	case string:
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	}
+	return 0
 }

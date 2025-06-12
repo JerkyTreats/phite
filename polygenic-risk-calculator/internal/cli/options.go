@@ -8,12 +8,12 @@ import (
 
 	"github.com/spf13/pflag"
 	"phite.io/polygenic-risk-calculator/internal/config"
+	"phite.io/polygenic-risk-calculator/internal/db"
 	"phite.io/polygenic-risk-calculator/internal/gwas"
 	snpsutil "phite.io/polygenic-risk-calculator/internal/snps"
 )
 
 // Options is the canonical representation of all runtime parameters.
-
 
 type Options struct {
 	GenotypeFile   string
@@ -24,10 +24,11 @@ type Options struct {
 	Output         string
 	Format         string
 	ReferenceTable string // reference stats table name (default: reference_panel)
+	Repo           db.DBRepository
 }
 
 // ParseOptions parses CLI flags and resolves each parameter from CLI/env/config/default.
-func ParseOptions(args []string) (Options, error) {
+func ParseOptions(args []string, repo db.DBRepository) (Options, error) {
 	flags := pflag.NewFlagSet("risk-calculator", pflag.ContinueOnError)
 
 	var opts Options
@@ -67,7 +68,7 @@ func ParseOptions(args []string) (Options, error) {
 	if opts.GWASTable == "" {
 		opts.GWASTable = config.GetString("gwas_table")
 	}
-	if err := gwas.ValidateGWASDBAndTable(opts.GWASDB, opts.GWASTable); err != nil {
+	if err := gwas.ValidateGWASDBAndTable(repo, opts.GWASTable); err != nil {
 		return opts, err
 	}
 
@@ -107,6 +108,7 @@ func ParseOptions(args []string) (Options, error) {
 		return opts, errors.New(strings.Join(errMsgs, "; "))
 	}
 
+	opts.Repo = repo
 	return opts, nil
 }
 

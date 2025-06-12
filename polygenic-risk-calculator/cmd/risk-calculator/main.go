@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 
 	"phite.io/polygenic-risk-calculator/internal/cli"
 	"phite.io/polygenic-risk-calculator/internal/config"
+	"phite.io/polygenic-risk-calculator/internal/db"
 	"phite.io/polygenic-risk-calculator/internal/logging"
 	"phite.io/polygenic-risk-calculator/internal/output"
 	"phite.io/polygenic-risk-calculator/internal/pipeline"
@@ -32,11 +34,34 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 		logging.Info("PHITE CLI exiting")
 	}()
 
-	opts, err := cli.ParseOptions(args)
+	// Initial repository creation
+	dbType := "duckdb"
+	dbPath := "gwas/gwas.duckdb"
+	repo, err := db.GetRepository(context.Background(), dbType, map[string]string{
+		"path": dbPath,
+	})
+	if err != nil {
+		logAndStderr(stderr, "DB error: %v", err)
+		return 1
+	}
+
+	opts, err := cli.ParseOptions(args, repo)
 	if err != nil {
 		logging.Error("parameter error: %v", err)
 		cli.PrintHelp()
 		return 1
+	}
+
+	// Later re-initialized with actual path from options
+	if opts.GWASDB != "" {
+		repo, err = db.GetRepository(context.Background(), dbType, map[string]string{
+			"path": opts.GWASDB,
+		})
+		if err != nil {
+			logAndStderr(stderr, "DB error: %v", err)
+			return 1
+		}
+		opts.Repo = repo
 	}
 
 	// Use canonical, validated SNP list from opts
@@ -48,9 +73,7 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 	pipelineInput := pipeline.PipelineInput{
 		GenotypeFile:   opts.GenotypeFile,
 		SNPs:           opts.SNPs,
-		GWASDB:         opts.GWASDB,
 		GWASTable:      opts.GWASTable,
-		ReferenceDB:    opts.GWASDB, // Use GWASDB for reference data too
 		ReferenceTable: opts.ReferenceTable,
 		Ancestry:       ancestry,
 		Model:          model,
@@ -104,7 +127,6 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 
 	return 0
 }
-
 
 func main() {
 	logging.Info("PHITE CLI invoked")

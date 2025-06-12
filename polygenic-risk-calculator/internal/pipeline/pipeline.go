@@ -4,25 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
-	"phite.io/polygenic-risk-calculator/internal/clientsets/bigquery"
+	"phite.io/polygenic-risk-calculator/internal/db"
 	"phite.io/polygenic-risk-calculator/internal/genotype"
-	"phite.io/polygenic-risk-calculator/internal/gwas"
 	gwasdata "phite.io/polygenic-risk-calculator/internal/gwas"
+	"phite.io/polygenic-risk-calculator/internal/logging"
 	"phite.io/polygenic-risk-calculator/internal/model"
 	"phite.io/polygenic-risk-calculator/internal/output"
 	"phite.io/polygenic-risk-calculator/internal/prs"
 	reference "phite.io/polygenic-risk-calculator/internal/reference"
-	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
 // PipelineInput defines all inputs required for the risk calculation pipeline.
 type PipelineInput struct {
 	GenotypeFile   string
 	SNPs           []string
-	GWASDB         string
+	GWASRepository db.DBRepository
 	GWASTable      string
-	ReferenceDB    string
+	RefRepository  db.DBRepository
 	ReferenceTable string // reference stats table name (default: reference_panel)
 	OutputFormat   string
 	OutputPath     string
@@ -43,7 +43,7 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 	logging.Info("Pipeline started with input: %+v", input)
 
 	ctx := context.Background()
-	if input.GenotypeFile == "" || input.GWASDB == "" || input.GWASTable == "" || len(input.SNPs) == 0 {
+	if input.GenotypeFile == "" || input.GWASRepository == nil || input.GWASTable == "" || len(input.SNPs) == 0 {
 		logging.Error("Missing required pipeline input: %+v", input)
 		return PipelineOutput{}, errors.New("missing required input")
 	}
@@ -52,20 +52,35 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 		refTable = "reference_panel"
 	}
 
-	// Step 1: Fetch GWAS records
-	logging.Info("Fetching GWAS records from DB: %s, table: %s", input.GWASDB, input.GWASTable)
-	gwasRecords, err := gwas.FetchGWASRecordsWithTable(input.GWASDB, input.GWASTable, input.SNPs)
+	// Step 1: Fetch GWAS records using repository
+	logging.Info("Fetching GWAS records from table: %s", input.GWASTable)
+	query := fmt.Sprintf("SELECT * FROM %s WHERE rsid IN (%s)", input.GWASTable, buildPlaceholders(len(input.SNPs)))
+	args := make([]interface{}, len(input.SNPs))
+	for i, snp := range input.SNPs {
+		args[i] = snp
+	}
+
+	gwasRecords, err := input.GWASRepository.Query(ctx, query, args...)
 	if err != nil {
 		logging.Error("Failed to fetch GWAS records: %v", err)
 		return PipelineOutput{}, err
 	}
-	logging.Info("Fetched %d GWAS records", len(gwasRecords))
+
+	// Convert query results to GWAS records
+	gwasMap := make(map[string]model.GWASSNPRecord)
+	for _, record := range gwasRecords {
+		gwasRecord := convertToGWASRecord(record)
+		gwasMap[gwasRecord.RSID] = gwasRecord
+	}
+
+	logging.Info("Fetched %d GWAS records", len(gwasMap))
+
 	// Step 2: Parse genotype data
 	logging.Info("Parsing genotype data from file: %s", input.GenotypeFile)
 	genoOut, err := genotype.ParseGenotypeData(genotype.ParseGenotypeDataInput{
 		GenotypeFilePath: input.GenotypeFile,
 		RequestedRSIDs:   input.SNPs,
-		GWASData:         gwasRecords,
+		GWASData:         gwasMap,
 	})
 	if err != nil {
 		logging.Error("Failed to parse genotype data: %v", err)
@@ -76,7 +91,7 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 	// Step 3: Annotate SNPs
 	annotated := gwasdata.FetchAndAnnotateGWAS(gwasdata.GWASDataFetcherInput{
 		ValidatedSNPs:     genoOut.ValidatedSNPs,
-		AssociationsClean: gwasdata.MapToGWASList(gwasRecords),
+		AssociationsClean: gwasdata.MapToGWASList(gwasMap),
 	})
 	_ = annotated // TODO: use in next pipeline step
 
@@ -106,38 +121,37 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 		prsResult := prs.CalculatePRS(traitSNPs)
 		prsResults[trait] = prsResult
 		// Load reference stats for this trait
-		backend, err := bigquery.NewClient(ctx)
-		if err != nil {
-			logging.Error("Failed to create BigQuery client for trait %s: %v", trait, err)
-			return PipelineOutput{}, err
-		}
-		defer backend.Close()
-		refBackend := reference.NewReferenceStatsLoader(backend)
-		defer refBackend.Close()
-		refStats, err := refBackend.GetReferenceStats(ctx, input.Ancestry, trait, input.Model)
-		if err != nil {
-			logging.Error("Failed to get reference stats for trait %s (ancestry: %s, model: %s): %v", trait, input.Ancestry, input.Model, err)
-			return PipelineOutput{}, fmt.Errorf("failed to get reference stats for trait %s: %w", trait, err)
-		}
-		// Normalize PRS
-		var norm prs.NormalizedPRS
-		if refStats != nil {
-			logging.Info("Normalizing PRS for trait: %s", trait)
-			modelRef := model.ReferenceStats{
-				Mean:     refStats.Mean,
-				Std:      refStats.Std,
-				Min:      refStats.Min,
-				Max:      refStats.Max,
-				Ancestry: refStats.Ancestry,
-				Trait:    refStats.Trait,
-				Model:    refStats.Model,
+		if input.RefRepository != nil {
+			refBackend := reference.NewReferenceStatsLoader(input.RefRepository)
+			defer refBackend.Close()
+			refStats, err := refBackend.GetReferenceStats(ctx, input.Ancestry, trait, input.Model)
+			if err != nil {
+				logging.Error("Failed to get reference stats for trait %s (ancestry: %s, model: %s): %v", trait, input.Ancestry, input.Model, err)
+				return PipelineOutput{}, fmt.Errorf("failed to get reference stats for trait %s: %w", trait, err)
 			}
-			norm, _ = prs.NormalizePRS(prsResult, modelRef)
+			// Normalize PRS
+			if refStats != nil {
+				logging.Info("Normalizing PRS for trait: %s", trait)
+				modelRef := model.ReferenceStats{
+					Mean:     refStats.Mean,
+					Std:      refStats.Std,
+					Min:      refStats.Min,
+					Max:      refStats.Max,
+					Ancestry: refStats.Ancestry,
+					Trait:    refStats.Trait,
+					Model:    refStats.Model,
+				}
+				norm, err := prs.NormalizePRS(prsResult, modelRef)
+				if err != nil {
+					logging.Error("Failed to normalize PRS for trait %s: %v", trait, err)
+					return PipelineOutput{}, fmt.Errorf("failed to normalize PRS for trait %s: %w", trait, err)
+				}
+				normPRSs[trait] = norm
+			}
 		}
-		normPRSs[trait] = norm
 		// Generate real trait summary using output.GenerateTraitSummaries
 		logging.Info("Generating trait summary for trait: %s", trait)
-		ts := output.GenerateTraitSummaries(traitSNPs, norm)
+		ts := output.GenerateTraitSummaries(traitSNPs, normPRSs[trait])
 		summaries = append(summaries, ts...)
 	}
 
@@ -148,4 +162,29 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 		PRSResults:     prsResults,
 		SNPSMissing:    genoOut.SNPsMissing,
 	}, nil
+}
+
+// Helper function to build SQL placeholders
+func buildPlaceholders(count int) string {
+	placeholders := make([]string, count)
+	for i := range placeholders {
+		placeholders[i] = "?"
+	}
+	return strings.Join(placeholders, ",")
+}
+
+// Helper function to convert map to GWASSNPRecord
+func convertToGWASRecord(record map[string]interface{}) model.GWASSNPRecord {
+	// Get values with type assertions, defaulting to zero values if missing
+	rsid, _ := record["rsid"].(string)
+	riskAllele, _ := record["effect_allele"].(string)
+	beta, _ := record["effect_size"].(float64)
+	trait, _ := record["trait"].(string)
+
+	return model.GWASSNPRecord{
+		RSID:       rsid,
+		RiskAllele: riskAllele,
+		Beta:       beta,
+		Trait:      trait,
+	}
 }
