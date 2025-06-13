@@ -3,12 +3,13 @@ package reference
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
-
+	"phite.io/polygenic-risk-calculator/internal/config"
 	reference_cache "phite.io/polygenic-risk-calculator/internal/reference/cache"
 	model "phite.io/polygenic-risk-calculator/internal/reference/model"
 	reference_stats "phite.io/polygenic-risk-calculator/internal/reference/stats"
@@ -41,22 +42,44 @@ func (m *mockCache) Store(ctx context.Context, req reference_cache.StatsRequest,
 	return m.storeFunc(ctx, req, stats)
 }
 
-func minimalViper() *viper.Viper {
-	v := viper.New()
-	v.Set("reference.model_table", "model_table")
-	v.Set("reference.allele_freq_table", "allele_freq_table")
-	v.Set("reference.column_mapping", map[string]string{
-		"model_id":      "model_id",
-		"id":            "id",
-		"effect_weight": "effect_weight",
-		"effect_allele": "effect_allele",
-		"other_allele":  "other_allele",
-		"effect_freq":   "effect_freq",
-	})
-	v.Set("reference.ancestry_mapping", map[string]string{
-		"EUR": "eur_freq",
-	})
-	return v
+func TestMain(m *testing.M) {
+	// Reset config for testing
+	config.ResetForTest()
+
+	// Create a temporary config file
+	tmpDir, err := os.MkdirTemp("", "phite-test-*")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "config.json")
+	config.SetConfigPath(configPath)
+
+	// Create config file with test values
+	configContent := `{
+		"reference": {
+			"model_table": "model_table",
+			"allele_freq_table": "allele_freq_table",
+			"column_mapping": {
+				"model_id": "model_id",
+				"id": "id",
+				"effect_weight": "effect_weight",
+				"effect_allele": "effect_allele",
+				"other_allele": "other_allele",
+				"effect_freq": "effect_freq"
+			},
+			"ancestry_mapping": {
+				"EUR": "eur_freq"
+			}
+		}
+	}`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		panic(err)
+	}
+
+	// Run tests
+	os.Exit(m.Run())
 }
 
 func TestReferenceService_LoadModel_Success(t *testing.T) {
@@ -67,7 +90,14 @@ func TestReferenceService_LoadModel_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	service := NewReferenceService(repo, minimalViper(), &mockCache{})
+	service := &ReferenceService{
+		gnomadDB:        repo,
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
+	}
 	model, err := service.LoadModel(context.Background(), "test_model")
 	assert.NoError(t, err)
 	assert.NotNil(t, model)
@@ -81,7 +111,14 @@ func TestReferenceService_LoadModel_DBError(t *testing.T) {
 			return nil, errors.New("db error")
 		},
 	}
-	service := NewReferenceService(repo, minimalViper(), &mockCache{})
+	service := &ReferenceService{
+		gnomadDB:        repo,
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
+	}
 	model, err := service.LoadModel(context.Background(), "test_model")
 	assert.Error(t, err)
 	assert.Nil(t, model)
@@ -93,7 +130,14 @@ func TestReferenceService_LoadModel_NoRows(t *testing.T) {
 			return []map[string]interface{}{}, nil
 		},
 	}
-	service := NewReferenceService(repo, minimalViper(), &mockCache{})
+	service := &ReferenceService{
+		gnomadDB:        repo,
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
+	}
 	model, err := service.LoadModel(context.Background(), "test_model")
 	assert.Error(t, err)
 	assert.Nil(t, model)
@@ -107,7 +151,14 @@ func TestReferenceService_GetAlleleFrequencies_Success(t *testing.T) {
 			}, nil
 		},
 	}
-	service := NewReferenceService(repo, minimalViper(), &mockCache{})
+	service := &ReferenceService{
+		gnomadDB:        repo,
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
+	}
 	variants := []model.Variant{{ID: "1:1000:A:G"}}
 	freqs, err := service.GetAlleleFrequencies(context.Background(), variants, "EUR")
 	assert.NoError(t, err)
@@ -115,7 +166,14 @@ func TestReferenceService_GetAlleleFrequencies_Success(t *testing.T) {
 }
 
 func TestReferenceService_GetAlleleFrequencies_UnsupportedAncestry(t *testing.T) {
-	service := NewReferenceService(&mockRepo{}, minimalViper(), &mockCache{})
+	service := &ReferenceService{
+		gnomadDB:        &mockRepo{},
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
+	}
 	variants := []model.Variant{{ID: "1:1000:A:G"}}
 	_, err := service.GetAlleleFrequencies(context.Background(), variants, "AFR")
 	assert.Error(t, err)
@@ -127,7 +185,14 @@ func TestReferenceService_GetReferenceStats_CacheHit(t *testing.T) {
 			return &reference_stats.ReferenceStats{Mean: 0.5, Std: 1.0, Min: 0.0, Max: 1.0}, nil
 		},
 	}
-	service := NewReferenceService(&mockRepo{}, minimalViper(), cache)
+	service := &ReferenceService{
+		gnomadDB:        &mockRepo{},
+		referenceCache:  cache,
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
+	}
 	stats, err := service.GetReferenceStats(context.Background(), "EUR", "Height", "test_model")
 	assert.NoError(t, err)
 	assert.NotNil(t, stats)
@@ -156,7 +221,14 @@ func TestReferenceService_GetReferenceStats_CacheMissAndCompute(t *testing.T) {
 			}, nil
 		},
 	}
-	service := NewReferenceService(repo, minimalViper(), cache)
+	service := &ReferenceService{
+		gnomadDB:        repo,
+		referenceCache:  cache,
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
+	}
 	stats, err := service.GetReferenceStats(context.Background(), "EUR", "Height", "test_model")
 	assert.NoError(t, err)
 	assert.NotNil(t, stats)

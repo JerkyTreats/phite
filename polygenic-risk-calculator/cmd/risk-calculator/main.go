@@ -1,13 +1,11 @@
 package main
 
 import (
-	"context"
 	"io"
 	"os"
 
 	"phite.io/polygenic-risk-calculator/internal/cli"
 	"phite.io/polygenic-risk-calculator/internal/config"
-	"phite.io/polygenic-risk-calculator/internal/db"
 	"phite.io/polygenic-risk-calculator/internal/logging"
 	"phite.io/polygenic-risk-calculator/internal/output"
 	"phite.io/polygenic-risk-calculator/internal/pipeline"
@@ -22,49 +20,17 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 		logging.Info("PHITE CLI exiting")
 	}()
 
-	// Initial repository creation
-	dbType := "duckdb"
-	dbPath := "gwas/gwas.duckdb"
-	repo, err := db.GetRepository(context.Background(), dbType, map[string]string{
-		"path": dbPath,
-	})
-	if err != nil {
-		logging.Error("DB error: %v", err)
-		return 1
-	}
-
-	opts, err := cli.ParseOptions(args, repo)
+	opts, err := cli.ParseOptions(args)
 	if err != nil {
 		logging.Error("parameter error: %v", err)
 		cli.PrintHelp()
 		return 1
 	}
 
-	// Later re-initialized with actual path from options
-	if opts.GWASDB != "" {
-		repo, err = db.GetRepository(context.Background(), dbType, map[string]string{
-			"path": opts.GWASDB,
-		})
-		if err != nil {
-			logging.Error("DB error: %v", err)
-			return 1
-		}
-		opts.Repo = repo
-	}
-
-	// Use canonical, validated SNP list from opts
-	// Handle missing Ancestry/Model fields for backward compatibility
-	ancestry := ""
-	model := ""
-	// cli.Options does not define Ancestry or Model; pass empty string for now
-
 	pipelineInput := pipeline.PipelineInput{
 		GenotypeFile:   opts.GenotypeFile,
 		SNPs:           opts.SNPs,
-		GWASTable:      opts.GWASTable,
 		ReferenceTable: opts.ReferenceTable,
-		Ancestry:       ancestry,
-		Model:          model,
 	}
 
 	// Check for missing required keys early in RunCLI

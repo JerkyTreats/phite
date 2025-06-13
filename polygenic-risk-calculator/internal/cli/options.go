@@ -8,8 +8,6 @@ import (
 
 	"github.com/spf13/pflag"
 	"phite.io/polygenic-risk-calculator/internal/config"
-	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
-	"phite.io/polygenic-risk-calculator/internal/gwas"
 	snpsutil "phite.io/polygenic-risk-calculator/internal/snps"
 )
 
@@ -24,11 +22,10 @@ type Options struct {
 	Output         string
 	Format         string
 	ReferenceTable string // reference stats table name (default: reference_panel)
-	Repo           dbinterface.Repository
 }
 
 // ParseOptions parses CLI flags and resolves each parameter from CLI/env/config/default.
-func ParseOptions(args []string, repo dbinterface.Repository) (Options, error) {
+func ParseOptions(args []string) (Options, error) {
 	flags := pflag.NewFlagSet("risk-calculator", pflag.ContinueOnError)
 
 	var opts Options
@@ -47,29 +44,12 @@ func ParseOptions(args []string, repo dbinterface.Repository) (Options, error) {
 		return opts, err
 	}
 
-	if opts.GenotypeFile == "" {
-		opts.GenotypeFile = config.GetString("genotype_file")
-	}
-
-	if opts.Output == "" {
-		opts.Output = config.GetString("output")
-	}
-	if opts.Format == "" {
-		opts.Format = config.GetString("format")
-	}
-	if opts.GWASDB == "" {
-		opts.GWASDB = config.GetString("reference_db")
-	}
-
 	// GWAS Database with Validation
 	if opts.GWASDB == "" {
 		opts.GWASDB = config.GetString("gwas_db_path")
 	}
 	if opts.GWASTable == "" {
 		opts.GWASTable = config.GetString("gwas_table")
-	}
-	if err := gwas.ValidateGWASDBAndTable(repo, opts.GWASTable); err != nil {
-		return opts, err
 	}
 
 	// Canonical SNP resolution (enforce mutual exclusion, requiredness, and validation)
@@ -108,7 +88,6 @@ func ParseOptions(args []string, repo dbinterface.Repository) (Options, error) {
 		return opts, errors.New(strings.Join(errMsgs, "; "))
 	}
 
-	opts.Repo = repo
 	return opts, nil
 }
 

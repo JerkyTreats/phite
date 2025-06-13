@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/spf13/viper"
 	"phite.io/polygenic-risk-calculator/internal/config"
+	"phite.io/polygenic-risk-calculator/internal/db"
 	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
 	"phite.io/polygenic-risk-calculator/internal/logging"
 	reference_cache "phite.io/polygenic-risk-calculator/internal/reference/cache"
@@ -26,25 +26,34 @@ func init() {
 
 // ReferenceService handles loading PRS models and allele frequencies using the repository pattern
 type ReferenceService struct {
-	repo            dbinterface.Repository
-	config          *viper.Viper
+	gnomadDB        dbinterface.Repository
+	referenceCache  reference_cache.Cache
 	modelTable      string
 	alleleFreqTable string
 	columnMapping   map[string]string
 	ancestryMapping map[string]string
-	cache           reference_cache.Cache
 }
 
 // NewReferenceService creates a new reference service
-func NewReferenceService(repo dbinterface.Repository, config *viper.Viper, cache reference_cache.Cache) *ReferenceService {
+func NewReferenceService() *ReferenceService {
+	gnomadDB, err := db.GetRepository(context.Background(), "bq")
+	if err != nil {
+		logging.Error("Failed to create ReferenceService: %v", err)
+		return nil
+	}
+	referenceCache, err := reference_cache.NewRepositoryCache()
+	if err != nil {
+		logging.Error("Failed to create ReferenceService: %v", err)
+		return nil
+	}
+
 	return &ReferenceService{
-		repo:            repo,
-		config:          config,
+		gnomadDB:        gnomadDB,
+		referenceCache:  referenceCache,
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
 		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
-		cache:           cache,
 	}
 }
 
@@ -57,7 +66,7 @@ func (s *ReferenceService) LoadModel(ctx context.Context, modelID string) (*mode
 	)
 
 	logging.Info("Loading PRS model: %s", modelID)
-	rows, err := s.repo.Query(ctx, query, modelID)
+	rows, err := s.gnomadDB.Query(ctx, query, modelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query model: %w", err)
 	}
@@ -122,7 +131,7 @@ func (s *ReferenceService) GetAlleleFrequencies(ctx context.Context, variants []
 	)
 
 	logging.Info("Querying allele frequencies for %d variants", len(variants))
-	rows, err := s.repo.Query(ctx, query, args...)
+	rows, err := s.gnomadDB.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query allele frequencies: %w", err)
 	}
@@ -190,7 +199,7 @@ func (s *ReferenceService) convertRowToVariant(row map[string]interface{}) (mode
 // It first attempts to fetch from the cache, then falls back to on-the-fly computation if needed.
 func (s *ReferenceService) GetReferenceStats(ctx context.Context, ancestry, trait, modelID string) (*reference_stats.ReferenceStats, error) {
 	// Try to get from cache first
-	stats, err := s.cache.Get(ctx, reference_cache.StatsRequest{
+	stats, err := s.referenceCache.Get(ctx, reference_cache.StatsRequest{
 		Ancestry: ancestry,
 		Trait:    trait,
 		ModelID:  modelID,
@@ -232,7 +241,7 @@ func (s *ReferenceService) computeAndCacheStats(ctx context.Context, ancestry, t
 	stats.Model = modelID
 
 	// Cache the result
-	if err := s.cache.Store(ctx, reference_cache.StatsRequest{
+	if err := s.referenceCache.Store(ctx, reference_cache.StatsRequest{
 		Ancestry: ancestry,
 		Trait:    trait,
 		ModelID:  modelID,

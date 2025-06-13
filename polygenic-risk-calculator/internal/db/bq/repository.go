@@ -5,31 +5,37 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/bigquery"
-	"github.com/spf13/viper"
 	"google.golang.org/api/iterator"
+	bigqueryclient "phite.io/polygenic-risk-calculator/internal/clientsets/bigquery"
+	"phite.io/polygenic-risk-calculator/internal/config"
 	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
 	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
-// Repository implements the dbinterface.Repository interface for BigQuery
+func init() {
+	config.RegisterRequiredKey("bigquery.dataset_id")
+}
+
 type Repository struct {
-	client *bigquery.Client
-	config *viper.Viper
+	bqclient *bigqueryclient.BQClient
 }
 
 // NewRepository creates a new BigQuery repository
-func NewRepository(client *bigquery.Client, config *viper.Viper) dbinterface.Repository {
-	return &Repository{
-		client: client,
-		config: config,
+func NewRepository() (dbinterface.Repository, error) {
+	bqclient, err := bigqueryclient.NewClient(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create BigQuery client: %w", err)
 	}
+	return &Repository{
+		bqclient: bqclient,
+	}, nil
 }
 
 // Query executes a SQL query and returns the results as a slice of maps
 func (r *Repository) Query(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
 	logging.Debug("Executing BigQuery query: %s", query)
 
-	it, err := r.client.Query(query).Read(ctx)
+	it, err := r.bqclient.Client.Query(query).Read(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -66,8 +72,8 @@ func (r *Repository) Insert(ctx context.Context, table string, rows []map[string
 	logging.Debug("Inserting %d rows into table %s", len(rows), table)
 
 	// Get dataset and table references
-	datasetID := r.config.GetString("bigquery.dataset_id")
-	tableRef := r.client.Dataset(datasetID).Table(table)
+	datasetID := config.GetString("bigquery.dataset_id")
+	tableRef := r.bqclient.Client.Dataset(datasetID).Table(table)
 	inserter := tableRef.Inserter()
 
 	// Convert rows to BigQuery values
@@ -98,8 +104,8 @@ func (r *Repository) ValidateTable(ctx context.Context, table string, requiredCo
 	logging.Info("Validating table %q for required columns", table)
 
 	// Get dataset and table references
-	datasetID := r.config.GetString("bigquery.dataset_id")
-	tableRef := r.client.Dataset(datasetID).Table(table)
+	datasetID := config.GetString("bigquery.dataset_id")
+	tableRef := r.bqclient.Client.Dataset(datasetID).Table(table)
 
 	// Check if table exists
 	_, err := tableRef.Metadata(ctx)

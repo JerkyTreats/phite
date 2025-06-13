@@ -27,7 +27,7 @@ type BQClient struct {
 	Dataset   string
 	Table     string
 	CredsPath string
-	bqClient  *bigquery.Client
+	Client    *bigquery.Client
 }
 
 // NewClient initializes a BigQuery client using config.go.
@@ -58,16 +58,11 @@ func NewClient(ctx context.Context) (*BQClient, error) {
 		Dataset:   dataset,
 		Table:     table,
 		CredsPath: creds,
-		bqClient:  client,
+		Client:    client,
 	}, nil
-}
-
-// BigQuery returns the underlying BigQuery client.
-func (c *BQClient) BigQuery() *bigquery.Client {
-	return c.bqClient
 }
 
 // Close releases resources held by the client.
 func (c *BQClient) Close() error {
-	return c.bqClient.Close()
+	return c.Client.Close()
 }

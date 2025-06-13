@@ -4,10 +4,22 @@ import (
 	"context"
 	"fmt"
 
+	"phite.io/polygenic-risk-calculator/internal/config"
+	"phite.io/polygenic-risk-calculator/internal/db"
 	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
 	"phite.io/polygenic-risk-calculator/internal/logging"
 	reference_stats "phite.io/polygenic-risk-calculator/internal/reference/stats"
 )
+
+const (
+	// TableIDKey is the configuration key for the reference stats table ID
+	TableIDKey = "reference_stats.table_id"
+)
+
+func init() {
+	// Register required configuration keys
+	config.RegisterRequiredKey(TableIDKey)
+}
 
 // ReferenceStatsBackend defines the interface for any backend that can provide reference stats.
 type ReferenceStatsBackend interface {
@@ -30,16 +42,21 @@ type Cache interface {
 
 // RepositoryCache implements both Cache and ReferenceStatsBackend using DBRepository.
 type RepositoryCache struct {
-	repo    dbinterface.Repository
-	tableID string
+	Repo    dbinterface.Repository
+	TableID string
 }
 
 // NewRepositoryCache creates a new cache using DBRepository.
-func NewRepositoryCache(repo dbinterface.Repository, tableID string) *RepositoryCache {
-	return &RepositoryCache{
-		repo:    repo,
-		tableID: tableID,
+func NewRepositoryCache() (*RepositoryCache, error) {
+	repo, err := db.GetRepository(context.Background(), "bq")
+	if err != nil {
+		logging.Error("Failed to create RepositoryCache: %v", err)
+		return nil, fmt.Errorf("failed to create RepositoryCache: %w", err)
 	}
+	return &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}, nil
 }
 
 // GetReferenceStats implements ReferenceStatsBackend interface.
@@ -55,13 +72,13 @@ func (c *RepositoryCache) GetReferenceStats(ctx context.Context, ancestry, trait
 func (c *RepositoryCache) Get(ctx context.Context, req StatsRequest) (*reference_stats.ReferenceStats, error) {
 	queryString := fmt.Sprintf(
 		"SELECT mean, std, min, max, ancestry, trait, model FROM %s WHERE ancestry = ? AND trait = ? AND model = ? LIMIT 1",
-		c.tableID,
+		c.TableID,
 	)
 
 	logging.Debug("Executing cache query: %s with params: ancestry=%s, trait=%s, modelID=%s",
 		queryString, req.Ancestry, req.Trait, req.ModelID)
 
-	results, err := c.repo.Query(ctx, queryString, req.Ancestry, req.Trait, req.ModelID)
+	results, err := c.Repo.Query(ctx, queryString, req.Ancestry, req.Trait, req.ModelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute cache query: %w", err)
 	}
@@ -111,15 +128,9 @@ func (c *RepositoryCache) Store(ctx context.Context, req StatsRequest, stats *re
 		"model":    req.ModelID,
 	}
 
-	if err := c.repo.Insert(ctx, c.tableID, []map[string]interface{}{row}); err != nil {
+	if err := c.Repo.Insert(ctx, c.TableID, []map[string]interface{}{row}); err != nil {
 		return fmt.Errorf("failed to store stats in cache: %w", err)
 	}
 
 	return nil
-}
-
-// Close implements ReferenceStatsBackend interface.
-func (c *RepositoryCache) Close() error {
-	logging.Info("Closing RepositoryCache")
-	return nil // No resources to clean up with DBRepository
 }

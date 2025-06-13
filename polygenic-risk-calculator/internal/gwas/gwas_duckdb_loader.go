@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"phite.io/polygenic-risk-calculator/internal/config"
+	"phite.io/polygenic-risk-calculator/internal/db"
 	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
 	"phite.io/polygenic-risk-calculator/internal/logging"
 	"phite.io/polygenic-risk-calculator/internal/model"
@@ -16,8 +17,15 @@ type GWASService struct {
 	repo dbinterface.Repository
 }
 
-func NewGWASService(repo dbinterface.Repository) *GWASService {
-	return &GWASService{repo: repo}
+func NewGWASService() *GWASService {
+	repo, err := db.GetRepository(context.Background(), "duckdb", map[string]string{"path": config.GetString("gwas_db_path")})
+	if err != nil {
+		logging.Error("Failed to create GWASService: %v", err)
+		return nil
+	}
+	return &GWASService{
+		repo: repo,
+	}
 }
 
 // FetchGWASRecordsWithTable loads GWAS SNP records for the given rsids from the specified table using the repository abstraction.
