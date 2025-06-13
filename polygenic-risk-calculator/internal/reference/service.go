@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
+	"phite.io/polygenic-risk-calculator/internal/config"
 	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
 	"phite.io/polygenic-risk-calculator/internal/logging"
 	reference_cache "phite.io/polygenic-risk-calculator/internal/reference/cache"
@@ -14,6 +15,14 @@ import (
 
 	model "phite.io/polygenic-risk-calculator/internal/reference/model"
 )
+
+func init() {
+	// Register required configuration keys for reference service
+	config.RegisterRequiredKey("reference.model_table")
+	config.RegisterRequiredKey("reference.allele_freq_table")
+	config.RegisterRequiredKey("reference.column_mapping")
+	config.RegisterRequiredKey("reference.ancestry_mapping")
+}
 
 // ReferenceService handles loading PRS models and allele frequencies using the repository pattern
 type ReferenceService struct {
