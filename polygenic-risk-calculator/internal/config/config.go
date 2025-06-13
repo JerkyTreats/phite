@@ -20,6 +20,8 @@ var (
 	configPath        string
 	requiredKeys      []string
 	requiredKeysMutex sync.Mutex
+	// Replace global variable with a slice to track missing required keys
+	MissingKeys []string
 )
 
 // resetConfig is for test use only; resets the singleton.
@@ -134,6 +136,10 @@ func RegisterRequiredKey(key string) {
 		}
 	}
 	requiredKeys = append(requiredKeys, key)
+	// Check if the key is present in the config
+	if !HasKey(key) {
+		MissingKeys = append(MissingKeys, key)
+	}
 }
 
 // HasKey returns true if the config has the key.

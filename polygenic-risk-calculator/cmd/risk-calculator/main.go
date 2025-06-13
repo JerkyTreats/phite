@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 
@@ -16,20 +15,9 @@ import (
 )
 
 // RunCLI parses arguments and runs the entrypoint logic. Returns exit code.
-func logAndStderr(stderr io.Writer, format string, args ...interface{}) {
-	msg := fmt.Sprintf(format, args...)
-	logging.Error("%s", msg)
-	fmt.Fprintln(stderr, msg)
-}
-
 func RunCLI(args []string, stdout, stderr io.Writer) int {
 	logging.Info("PHITE CLI started with args: %v", args)
 
-	// Validate configuration early
-	if err := config.Validate(); err != nil {
-		logAndStderr(stderr, "Configuration error: %v", err)
-		return 1
-	}
 	defer func() {
 		logging.Info("PHITE CLI exiting")
 	}()
@@ -41,7 +29,7 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 		"path": dbPath,
 	})
 	if err != nil {
-		logAndStderr(stderr, "DB error: %v", err)
+		logging.Error("DB error: %v", err)
 		return 1
 	}
 
@@ -58,7 +46,7 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 			"path": opts.GWASDB,
 		})
 		if err != nil {
-			logAndStderr(stderr, "DB error: %v", err)
+			logging.Error("DB error: %v", err)
 			return 1
 		}
 		opts.Repo = repo
@@ -79,9 +67,15 @@ func RunCLI(args []string, stdout, stderr io.Writer) int {
 		Model:          model,
 	}
 
+	// Check for missing required keys early in RunCLI
+	if len(config.MissingKeys) > 0 {
+		logging.Error("Missing required configuration keys: %v", config.MissingKeys)
+		return 1
+	}
+
 	outputData, err := pipeline.Run(pipelineInput)
 	if err != nil {
-		logAndStderr(stderr, "Pipeline error: %v", err)
+		logging.Error("Pipeline error: %v", err)
 		return 1
 	}
 
