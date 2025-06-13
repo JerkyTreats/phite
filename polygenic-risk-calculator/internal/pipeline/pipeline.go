@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/spf13/viper"
 	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
 	"phite.io/polygenic-risk-calculator/internal/genotype"
 	gwasdata "phite.io/polygenic-risk-calculator/internal/gwas"
@@ -14,6 +15,7 @@ import (
 	"phite.io/polygenic-risk-calculator/internal/output"
 	"phite.io/polygenic-risk-calculator/internal/prs"
 	reference "phite.io/polygenic-risk-calculator/internal/reference"
+	reference_cache "phite.io/polygenic-risk-calculator/internal/reference/cache"
 )
 
 // PipelineInput defines all inputs required for the risk calculation pipeline.
@@ -26,8 +28,9 @@ type PipelineInput struct {
 	ReferenceTable string // reference stats table name (default: reference_panel)
 	OutputFormat   string
 	OutputPath     string
-	Ancestry       string // optional
-	Model          string // optional
+	Ancestry       string       // optional
+	Model          string       // optional
+	Config         *viper.Viper // Add config parameter
 }
 
 // PipelineOutput defines the results of the pipeline execution.
@@ -122,9 +125,9 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 		prsResults[trait] = prsResult
 		// Load reference stats for this trait
 		if input.RefRepository != nil {
-			refBackend := reference.NewReferenceStatsLoader(input.RefRepository)
-			defer refBackend.Close()
-			refStats, err := refBackend.GetReferenceStats(ctx, input.Ancestry, trait, input.Model)
+			cache := reference_cache.NewRepositoryCache(input.RefRepository, refTable)
+			refService := reference.NewReferenceService(input.RefRepository, input.Config, cache)
+			refStats, err := refService.GetReferenceStats(ctx, input.Ancestry, trait, input.Model)
 			if err != nil {
 				logging.Error("Failed to get reference stats for trait %s (ancestry: %s, model: %s): %v", trait, input.Ancestry, input.Model, err)
 				return PipelineOutput{}, fmt.Errorf("failed to get reference stats for trait %s: %w", trait, err)

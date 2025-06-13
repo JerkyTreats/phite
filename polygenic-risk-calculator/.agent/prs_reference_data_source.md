@@ -5,22 +5,20 @@
 
 ## Summary
 
-This document outlines the enhanced strategy for managing Polygenic Risk Score (PRS) reference statistics within the `polygenic-risk-calculator`, with a strict requirement that **all referenced and inputted datasets use the GRCh38 (hg38) genome build**. The system will now employ a dual approach:
+This document outlines the enhanced strategy for managing Polygenic Risk Score (PRS) reference statistics within the `polygenic-risk-calculator`. The system will employ a dual approach:
 
 1. **Attempt to retrieve pre-computed PRS statistics** (mean, standard deviation, min, max) from a user-configured BigQuery table within their own GCP project (e.g., `jerkytreats`). This table acts as a cache.
 2. **If statistics are not found in the cache, compute them on-the-fly**. This involves:
-    * Using a defined PRS model (SNPs and weights), which must be mapped to GRCh38 coordinates.
-    * Querying a public allele frequency dataset (e.g., gnomAD v3.x or later, which are GRCh38-only).
+    * Using a defined PRS model (SNPs and weights)
+    * Querying a public allele frequency dataset (e.g., gnomAD v3.x or later)
     * Calculating the necessary statistics.
     * **Uploading the newly computed statistics to the user's BigQuery cache table** for future retrieval.
-
-> **All PRS calculations, cache tables, and reference data sources must use GRCh38. Input data in other genome builds must be lifted over to GRCh38 prior to use.**
 
 This enhancement aims to provide flexibility, reduce redundant computations, and allow users to manage their own curated reference statistics while also leveraging on-demand calculations.
 
 Refer to the main `.agent/README.md` for overall project goals and `.agent/data_model.md` for details on key data structures.
 
-## Detailsz
+## Details
 
 ### 1. User's BigQuery Cache Table for PRS Statistics
 
@@ -159,7 +157,7 @@ The application's configuration (`config.yaml` or environment variables) will ne
   * `allele_freq_source.type`: (String, e.g., "bigquery_gnomad")
   * `allele_freq_source.gcp_project_id`: (String, e.g., "bigquery-public-data")
   * `allele_freq_source.dataset_id_pattern`: (String, e.g., "gnomAD")
-  * `allele_freq_source.table_id_pattern`: (String, e.g., "genomes_v{version}_{grch_build}") * to accommodate different gnomAD versions.
+  * `allele_freq_source.table_id_pattern`: (String, e.g., "genomes_v{version}") * to accommodate different gnomAD versions.
   * `allele_freq_source.ancestry_column_name`: (String, e.g., " população" or "ancestry")
   * `allele_freq_source.allele_freq_column_name`: (String, e.g., "AF")
   * `allele_freq_source.variant_id_column_names`: (List of Strings, e.g., ["chrom", "pos", "ref", "alt"])
@@ -178,19 +176,3 @@ Users will need to:
 3. **Configure the Application**: Populate all new configuration sections accurately.
 
 This enhanced design provides a more robust and user-friendly approach to managing essential reference data for PRS calculations.
-
----
-
-## Relevant Refactor Files (for GRCh38 Enforcement)
-
-The following files and directories in `internal/` must be reviewed and refactored to guarantee that only GRCh38-based reference and input data are used:
-
-- `internal/config/` — Configuration parsing, validation, and documentation for reference genome build and data sources.
-- `internal/reference/` — Reference data access, gnomAD queries, and BigQuery table patterns.
-- `internal/clientsets/` — BigQuery and external data client logic; ensure only GRCh38 tables are accessed.
-- `internal/prs/`, `internal/model/`, `internal/snps/` — PRS model parsing, SNP coordinate handling, and variant matching logic.
-- `internal/pipeline/`, `internal/gwas/`, `internal/genotype/` — Data processing, variant matching, and all allele frequency extraction.
-- `internal/cli/` — CLI flags, help text, and user input validation for genome build.
-- Tests throughout these modules to ensure only GRCh38 is accepted and non-GRCh38 data is rejected.
-
-All logic, configuration, and documentation should be updated to reflect the strict GRCh38 requirement. Remove or deprecate any legacy or compatibility code for other genome builds.
