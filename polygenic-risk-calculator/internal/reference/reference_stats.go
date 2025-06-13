@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"phite.io/polygenic-risk-calculator/internal/db"
+	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
 	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
@@ -27,11 +27,11 @@ type ReferenceStats struct {
 
 // ReferenceStatsLoader implements ReferenceStatsBackend using a DBRepository.
 type ReferenceStatsLoader struct {
-	repo db.DBRepository
+	repo dbinterface.Repository
 }
 
 // NewReferenceStatsLoader returns a new ReferenceStatsLoader using the provided repository.
-func NewReferenceStatsLoader(repo db.DBRepository) *ReferenceStatsLoader {
+func NewReferenceStatsLoader(repo dbinterface.Repository) *ReferenceStatsLoader {
 	return &ReferenceStatsLoader{repo: repo}
 }
 

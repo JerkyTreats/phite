@@ -5,9 +5,10 @@ import (
 	"testing"
 
 	"phite.io/polygenic-risk-calculator/internal/db"
+	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
 )
 
-func setupTestRepositories(t *testing.T) (db.DBRepository, db.DBRepository) {
+func setupTestRepositories(t *testing.T) (dbinterface.Repository, dbinterface.Repository) {
 	gwasRepo, err := db.GetRepository(context.Background(), "duckdb", map[string]string{
 		"path": "testdata/gwas.duckdb",
 	})

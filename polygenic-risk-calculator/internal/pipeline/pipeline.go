@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"phite.io/polygenic-risk-calculator/internal/db"
+	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
 	"phite.io/polygenic-risk-calculator/internal/genotype"
 	gwasdata "phite.io/polygenic-risk-calculator/internal/gwas"
 	"phite.io/polygenic-risk-calculator/internal/logging"
@@ -20,9 +20,9 @@ import (
 type PipelineInput struct {
 	GenotypeFile   string
 	SNPs           []string
-	GWASRepository db.DBRepository
+	GWASRepository dbinterface.Repository
 	GWASTable      string
-	RefRepository  db.DBRepository
+	RefRepository  dbinterface.Repository
 	ReferenceTable string // reference stats table name (default: reference_panel)
 	OutputFormat   string
 	OutputPath     string

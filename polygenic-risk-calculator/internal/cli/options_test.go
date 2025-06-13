@@ -11,10 +11,16 @@ type mockRepo struct{}
 func (m *mockRepo) Query(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
 	return nil, nil
 }
+
 func (m *mockRepo) Insert(ctx context.Context, table string, rows []map[string]interface{}) error {
 	return nil
 }
+
 func (m *mockRepo) TestConnection(ctx context.Context, table string) error {
+	return nil
+}
+
+func (m *mockRepo) ValidateTable(ctx context.Context, table string, requiredColumns []string) error {
 	return nil
 }
 

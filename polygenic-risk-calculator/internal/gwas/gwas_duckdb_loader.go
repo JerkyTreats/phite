@@ -7,16 +7,16 @@ import (
 	"strings"
 
 	"phite.io/polygenic-risk-calculator/internal/config"
-	"phite.io/polygenic-risk-calculator/internal/db"
+	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
 	"phite.io/polygenic-risk-calculator/internal/logging"
 	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
 type GWASService struct {
-	repo db.DBRepository
+	repo dbinterface.Repository
 }
 
-func NewGWASService(repo db.DBRepository) *GWASService {
+func NewGWASService(repo dbinterface.Repository) *GWASService {
 	return &GWASService{repo: repo}
 }
 

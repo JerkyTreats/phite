@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/pflag"
 	"phite.io/polygenic-risk-calculator/internal/config"
-	"phite.io/polygenic-risk-calculator/internal/db"
+	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
 	"phite.io/polygenic-risk-calculator/internal/gwas"
 	snpsutil "phite.io/polygenic-risk-calculator/internal/snps"
 )
@@ -24,11 +24,11 @@ type Options struct {
 	Output         string
 	Format         string
 	ReferenceTable string // reference stats table name (default: reference_panel)
-	Repo           db.DBRepository
+	Repo           dbinterface.Repository
 }
 
 // ParseOptions parses CLI flags and resolves each parameter from CLI/env/config/default.
-func ParseOptions(args []string, repo db.DBRepository) (Options, error) {
+func ParseOptions(args []string, repo dbinterface.Repository) (Options, error) {
 	flags := pflag.NewFlagSet("risk-calculator", pflag.ContinueOnError)
 
 	var opts Options
