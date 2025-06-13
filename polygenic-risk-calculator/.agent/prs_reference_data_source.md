@@ -20,7 +20,7 @@ This enhancement aims to provide flexibility, reduce redundant computations, and
 
 Refer to the main `.agent/README.md` for overall project goals and `.agent/data_model.md` for details on key data structures.
 
-## Details
+## Detailsz
 
 ### 1. User's BigQuery Cache Table for PRS Statistics
 
@@ -49,9 +49,9 @@ The primary source for PRS reference statistics will be a table in the user's GC
 
 ---
 
-### 1a. Required gnomAD BigQuery Table Schema for Allele Frequencies (GRCh38)
+### 1a. Required gnomAD BigQuery Table Schema for Allele Frequencies
 
-To compute PRS reference statistics on-the-fly, the system requires access to a public allele frequency dataset based on GRCh38, such as gnomAD v3.x (e.g., `bigquery-public-data.gnomAD.genomes_v3_1_2`). The following schema elements are required to support robust and accurate PRS calculations:
+To compute PRS reference statistics on-the-fly, the system requires access to a public allele frequency dataset, such as gnomAD. The following schema elements are required to support robust and accurate PRS calculations:
 
 | Column Name        | Type      | Description                                                         | Notes                        |
 |--------------------|-----------|---------------------------------------------------------------------|------------------------------|
@@ -78,12 +78,11 @@ To compute PRS reference statistics on-the-fly, the system requires access to a 
 
 ### 1b. gnomAD Dataset/Table Structure and Allele Frequency Extraction
 
-The gnomAD public dataset is organized by genome build and chromosome. **For PRS reference and allele frequency extraction, only GRCh38-based tables must be used.** For example:
+The gnomAD public dataset is organized by chromosome. For example:
 * **Dataset name:** `gnomAD`
-* **Tables:** `v3_genomes_chr1`, ..., `v3_genomes_chr22` (all are GRCh38)
-  * **Note:** `v3_genomes_chr*` tables correspond to the **GRCh38/hg38** genome build (used in recent GWAS and gnomAD v3). `v2_1_1_genomes_chr*` tables correspond to **GRCh37/hg19** and must not be used.
-  * **Implication:** Only use `v3` (or later) tables, which are GRCh38. All input data and PRS models must be mapped to GRCh38 coordinates before use.
-* **Implication:** Queries must select the correct GRCh38 table by chromosome (e.g., `gnomAD.v3_genomes_chr1` for chromosome 1). Only GRCh38-based tables are supported.
+* **Tables:** `genomes_chr1`, ..., `genomes_chr22`
+  * **Note:** The table names may vary based on the version being used
+  * **Implication:** Queries must select the correct table by chromosome (e.g., `gnomAD.genomes_chr1` for chromosome 1)
 
 #### Table Structure Overview
 * Each table contains records for genomic variants, with the following relevant fields:
@@ -104,7 +103,7 @@ The gnomAD public dataset is organized by genome build and chromosome. **For PRS
 
 #### Example Mapping for PRS Calculation
 Suppose you need the allele frequency for a SNP on chromosome 1, position 123456, ref 'A', alt 'G', for the 'NFE' (Non-Finnish European) population:
-* Query table: `gnomAD.v3_genomes_chr1`
+* Query table: `gnomAD.genomes_chr1`
 * Match fields: `reference_name = '1'`, `start_position = 123456`, `reference_bases = 'A'`, `alternate_bases.alt = 'G'`
 * Extract: `alternate_bases.AF_nfe` as the allele frequency for 'NFE'
 
@@ -120,7 +119,7 @@ Suppose you need the allele frequency for a SNP on chromosome 1, position 123456
 allele_freq_source:
   gcp_project_id: bigquery-public-data
   dataset_id_pattern: gnomAD
-  table_id_pattern: v3_genomes_chr{chrom}
+  table_id_pattern: genomes_chr{chrom}
   ancestry_column_name: AF_nfe  # For Non-Finnish European
   variant_id_column_names: [reference_name, start_position, reference_bases, alternate_bases.alt]
 ```

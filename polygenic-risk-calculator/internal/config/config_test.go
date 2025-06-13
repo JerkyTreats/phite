@@ -26,7 +26,6 @@ func TestConfig_LoadsFromCustomPath(t *testing.T) {
 	f.WriteString(`{
 		"log_level": "DEBUG",
 		"feature_x": true,
-		"reference_genome_build": "GRCh38",
 		"prs_stats_cache": {
 			"gcp_project_id": "p",
 			"dataset_id": "d",
@@ -36,7 +35,7 @@ func TestConfig_LoadsFromCustomPath(t *testing.T) {
 			"type": "bigquery_gnomad",
 			"gcp_project_id": "b",
 			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
+			"table_id_pattern": "genomes_v3",
 			"ancestry_mapping": {
 				"EUR": "AF_nfe",
 				"AFR": "AF_afr"
@@ -44,7 +43,12 @@ func TestConfig_LoadsFromCustomPath(t *testing.T) {
 		},
 		"prs_model_source": {
 			"type": "file",
-			"path_or_table_uri": "/models/model.tsv"
+			"path_or_table_uri": "/models/model.tsv",
+			"snp_id_column_name": "rsid",
+			"effect_allele_column_name": "effect_allele",
+			"weight_column_name": "weight",
+			"chromosome_column_name": "chrom",
+			"position_column_name": "pos"
 		}
 	}`)
 	f.Close()
@@ -66,19 +70,26 @@ func TestConfig_GetStringMapString(t *testing.T) {
 	defer os.Remove(f.Name())
 	validMapContent := `{
 		"log_level": "INFO",
-		"reference_genome_build": "GRCh38",
 		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
 		"allele_freq_source": {
 			"type": "bigquery_gnomad",
 			"gcp_project_id": "b",
 			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
+			"table_id_pattern": "genomes_v3",
 			"ancestry_mapping": {
 				"EUR": "AF_nfe",
 				"AFR": "AF_afr"
 			}
 		},
-		"prs_model_source": {"type": "file", "path_or_table_uri": "/models/model.tsv"}
+		"prs_model_source": {
+			"type": "file",
+			"path_or_table_uri": "/models/model.tsv",
+			"snp_id_column_name": "rsid",
+			"effect_allele_column_name": "effect_allele",
+			"weight_column_name": "weight",
+			"chromosome_column_name": "chrom",
+			"position_column_name": "pos"
+		}
 	}`
 	f.WriteString(validMapContent)
 	f.Close()
@@ -95,7 +106,7 @@ func TestConfig_GetStringMapString(t *testing.T) {
 	f2, _ := os.CreateTemp("", "phite-config-*.json")
 	defer os.Remove(f2.Name())
 	// ancestry_mapping is missing
-	f2.WriteString(`{"log_level": "INFO", "reference_genome_build": "GRCh38", "prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"}, "allele_freq_source": {"type": "bigquery_gnomad", "gcp_project_id": "b", "dataset_id_pattern": "gnomAD", "table_id_pattern": "genomes_v3_GRCh38"}, "prs_model_source": {"type": "file", "path_or_table_uri": "/models/model.tsv"}}`)
+	f2.WriteString(`{"log_level": "INFO", "prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"}, "allele_freq_source": {"type": "bigquery_gnomad", "gcp_project_id": "b", "dataset_id_pattern": "gnomAD", "table_id_pattern": "genomes_v3"}, "prs_model_source": {"type": "file", "path_or_table_uri": "/models/model.tsv"}}`)
 	f2.Close()
 	SetConfigPath(f2.Name())
 	emptyMap := GetStringMapString("allele_freq_source.ancestry_mapping") // Viper returns nil for missing map, GetStringMapString should handle
@@ -123,16 +134,23 @@ func TestConfig_ValidateInvalidLogLevel(t *testing.T) {
 	// Note: ancestry_mapping added here
 	f.WriteString(`{
 		"log_level": "NOPE",
-		"reference_genome_build": "GRCh38",
 		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
 		"allele_freq_source": {
 			"type": "bigquery_gnomad",
 			"gcp_project_id": "b",
 			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
+			"table_id_pattern": "genomes_v3",
 			"ancestry_mapping": {"EUR": "AF_nfe"}
 		},
-		"prs_model_source": {"type": "file", "path_or_table_uri": "/models/model.tsv"}
+		"prs_model_source": {
+			"type": "file",
+			"path_or_table_uri": "/models/model.tsv",
+			"snp_id_column_name": "rsid",
+			"effect_allele_column_name": "effect_allele",
+			"weight_column_name": "weight",
+			"chromosome_column_name": "chrom",
+			"position_column_name": "pos"
+		}
 	}`)
 	f.Close()
 	SetConfigPath(f.Name())
@@ -141,7 +159,7 @@ func TestConfig_ValidateInvalidLogLevel(t *testing.T) {
 		t.Error("expected error for invalid log_level")
 		return
 	}
-	expectedErrorMsg := "invalid log_level: NOPE. Must be one of DEBUG, INFO, ERROR, WARN (case-insensitive)"
+	expectedErrorMsg := "invalid log_level 'NOPE' (case-insensitive), must be one of: TRACE, DEBUG, INFO, WARN, ERROR, FATAL, PANIC"
 	if strings.TrimSpace(errReturned.Error()) != strings.TrimSpace(expectedErrorMsg) {
 		t.Errorf("Validate() error message mismatch, got '%s', expected '%s'", errReturned.Error(), expectedErrorMsg)
 	}
@@ -157,16 +175,23 @@ func TestConfig_ValidateValidLowercaseLogLevel(t *testing.T) {
 	// Note: ancestry_mapping added here
 	f.WriteString(`{
 		"log_level": "debug",
-		"reference_genome_build": "GRCh38",
 		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
 		"allele_freq_source": {
 			"type": "bigquery_gnomad",
 			"gcp_project_id": "b",
 			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
+			"table_id_pattern": "genomes_v3",
 			"ancestry_mapping": {"EUR": "AF_nfe"}
 		},
-		"prs_model_source": {"type": "file", "path_or_table_uri": "/models/model.tsv"}
+		"prs_model_source": {
+			"type": "file",
+			"path_or_table_uri": "/models/model.tsv",
+			"snp_id_column_name": "rsid",
+			"effect_allele_column_name": "effect_allele",
+			"weight_column_name": "weight",
+			"chromosome_column_name": "chrom",
+			"position_column_name": "pos"
+		}
 	}`)
 	f.Close()
 
@@ -176,87 +201,7 @@ func TestConfig_ValidateValidLowercaseLogLevel(t *testing.T) {
 	}
 }
 
-// --- GRCh38 and PRS Reference Config Tests ---
-
-func TestConfig_ValidateGRCh38GenomeBuild_Accepted(t *testing.T) {
-	ResetForTest()
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	// Note: All required PRS keys added
-	f.WriteString(`{
-		"log_level": "INFO",
-		"reference_genome_build": "GRCh38",
-		"prs_stats_cache": {
-			"gcp_project_id": "my-project",
-			"dataset_id": "prs_cache",
-			"table_id": "stats"
-		},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "bigquery-public-data",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
-			"ancestry_mapping": {
-				"EUR": "AF_nfe",
-				"AFR": "AF_afr"
-			}
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/my_prs.tsv"
-		}
-	}`)
-	f.Close()
-	SetConfigPath(f.Name())
-	if err := Validate(); err != nil {
-		t.Errorf("Validate() failed for GRCh38 genome build with all PRS keys, expected nil, got %v", err)
-	}
-}
-
-func TestConfig_ValidateNonGRCh38GenomeBuild_Rejected(t *testing.T) {
-	ResetForTest()
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	// Note: All required PRS keys added
-	f.WriteString(`{
-		"log_level": "INFO",
-		"reference_genome_build": "GRCh37",
-		"prs_stats_cache": {
-			"gcp_project_id": "my-project",
-			"dataset_id": "prs_cache",
-			"table_id": "stats"
-		},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "bigquery-public-data",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
-			"ancestry_mapping": {
-				"EUR": "AF_nfe"
-			}
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/my_prs.tsv"
-		}
-	}`)
-	f.Close()
-	SetConfigPath(f.Name())
-	errReturned := Validate()
-	if errReturned == nil {
-		t.Error("expected error for non-GRCh38 genome build")
-		return
-	}
-	if !strings.Contains(errReturned.Error(), "reference_genome_build must be 'GRCh38'") {
-		t.Errorf("Validate() error message mismatch, got '%s', expected to mention 'reference_genome_build must be 'GRCh38''", errReturned.Error())
-	}
-}
+// --- PRS Reference Config Tests ---
 
 func TestConfig_ValidatePRSReferenceConfigKeys_PresentAndParsed(t *testing.T) {
 	ResetForTest()
@@ -267,7 +212,6 @@ func TestConfig_ValidatePRSReferenceConfigKeys_PresentAndParsed(t *testing.T) {
 	defer os.Remove(f.Name())
 	f.WriteString(`{
 		"log_level": "INFO",
-		"reference_genome_build": "GRCh38",
 		"prs_stats_cache": {
 			"gcp_project_id": "my-project",
 			"dataset_id": "prs_cache",
@@ -277,7 +221,7 @@ func TestConfig_ValidatePRSReferenceConfigKeys_PresentAndParsed(t *testing.T) {
 			"type": "bigquery_gnomad",
 			"gcp_project_id": "bigquery-public-data",
 			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
+			"table_id_pattern": "genomes_v3",
 			"ancestry_mapping": {
 				"EUR": "AF_nfe",
 				"AFR": "AF_afr"
@@ -285,7 +229,12 @@ func TestConfig_ValidatePRSReferenceConfigKeys_PresentAndParsed(t *testing.T) {
 		},
 		"prs_model_source": {
 			"type": "file",
-			"path_or_table_uri": "/models/my_prs.tsv"
+			"path_or_table_uri": "/models/my_prs.tsv",
+			"snp_id_column_name": "rsid",
+			"effect_allele_column_name": "effect_allele",
+			"weight_column_name": "weight",
+			"chromosome_column_name": "chrom",
+			"position_column_name": "pos"
 		}
 	}`)
 	f.Close()
@@ -325,8 +274,7 @@ func TestConfig_ValidatePRSReferenceConfigKeys_Missing(t *testing.T) {
 	}
 	defer os.Remove(f.Name())
 	f.WriteString(`{
-		"log_level": "INFO",
-		"reference_genome_build": "GRCh38"
+		"log_level": "INFO"
 	}`) // Missing all PRS keys
 	f.Close()
 	SetConfigPath(f.Name())
@@ -360,16 +308,23 @@ func TestConfig_ValidatePRSReferenceConfigKeys_AncestryMappingInvalidType(t *tes
 	// ancestry_mapping is a string, not a map
 	invalidTypeContent := `{
 		"log_level": "INFO",
-		"reference_genome_build": "GRCh38",
 		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
 		"allele_freq_source": {
 			"type": "bigquery_gnomad",
 			"gcp_project_id": "b",
 			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
+			"table_id_pattern": "genomes_v3",
 			"ancestry_mapping": "not_a_map"
 		},
-		"prs_model_source": {"type": "file", "path_or_table_uri": "/models/model.tsv"}
+		"prs_model_source": {
+			"type": "file",
+			"path_or_table_uri": "/models/model.tsv",
+			"snp_id_column_name": "rsid",
+			"effect_allele_column_name": "effect_allele",
+			"weight_column_name": "weight",
+			"chromosome_column_name": "chrom",
+			"position_column_name": "pos"
+		}
 	}`
 	f.WriteString(invalidTypeContent)
 	f.Close()
@@ -382,8 +337,7 @@ func TestConfig_ValidatePRSReferenceConfigKeys_AncestryMappingInvalidType(t *tes
 	}
 	// The exact error message depends on Viper's internal type assertion,
 	// but it should indicate a type mismatch.
-	// The error from our Validate function is "invalid type for allele_freq_source.ancestry_mapping: expected map[string]string, got string"
-	expectedErrorMsgPart := "invalid type for allele_freq_source.ancestry_mapping"
+	expectedErrorMsgPart := "allele_freq_source.ancestry_mapping must be a map[string]string"
 	if !strings.Contains(errReturned.Error(), expectedErrorMsgPart) {
 		t.Errorf("Validate() error message mismatch, got '%s', expected to contain '%s'", errReturned.Error(), expectedErrorMsgPart)
 	}
@@ -404,16 +358,23 @@ func TestValidate_RequiredKeys_AllPresent(t *testing.T) {
 		"log_level": "INFO",
 		"key1": "value1",
 		"key2": "value2",
-		"reference_genome_build": "GRCh38",
 		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
 		"allele_freq_source": {
 			"type": "bigquery_gnomad",
 			"gcp_project_id": "b",
 			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
+			"table_id_pattern": "genomes_v3",
 			"ancestry_mapping": {"EUR": "AF_nfe"}
 		},
-		"prs_model_source": {"type": "file", "path_or_table_uri": "/models/model.tsv"}
+		"prs_model_source": {
+			"type": "file",
+			"path_or_table_uri": "/models/model.tsv",
+			"snp_id_column_name": "rsid",
+			"effect_allele_column_name": "effect_allele",
+			"weight_column_name": "weight",
+			"chromosome_column_name": "chrom",
+			"position_column_name": "pos"
+		}
 	}`)
 	f.Close()
 
@@ -437,16 +398,23 @@ func TestValidate_RequiredKeys_OneMissing(t *testing.T) {
 	f.WriteString(`{
 		"log_level": "INFO",
 		"key1": "value1",
-		"reference_genome_build": "GRCh38",
 		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
 		"allele_freq_source": {
 			"type": "bigquery_gnomad",
 			"gcp_project_id": "b",
 			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
+			"table_id_pattern": "genomes_v3",
 			"ancestry_mapping": {"EUR": "AF_nfe"}
 		},
-		"prs_model_source": {"type": "file", "path_or_table_uri": "/models/model.tsv"}
+		"prs_model_source": {
+			"type": "file",
+			"path_or_table_uri": "/models/model.tsv",
+			"snp_id_column_name": "rsid",
+			"effect_allele_column_name": "effect_allele",
+			"weight_column_name": "weight",
+			"chromosome_column_name": "chrom",
+			"position_column_name": "pos"
+		}
 	}`)
 	f.Close()
 
@@ -477,16 +445,23 @@ func TestValidate_RequiredKeys_MultipleMissing(t *testing.T) {
 	f.WriteString(`{
 		"log_level": "INFO",
 		"key3": "value3",
-		"reference_genome_build": "GRCh38",
 		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
 		"allele_freq_source": {
 			"type": "bigquery_gnomad",
 			"gcp_project_id": "b",
 			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
+			"table_id_pattern": "genomes_v3",
 			"ancestry_mapping": {"EUR": "AF_nfe"}
 		},
-		"prs_model_source": {"type": "file", "path_or_table_uri": "/models/model.tsv"}
+		"prs_model_source": {
+			"type": "file",
+			"path_or_table_uri": "/models/model.tsv",
+			"snp_id_column_name": "rsid",
+			"effect_allele_column_name": "effect_allele",
+			"weight_column_name": "weight",
+			"chromosome_column_name": "chrom",
+			"position_column_name": "pos"
+		}
 	}`)
 	f.Close()
 
@@ -517,16 +492,23 @@ func TestValidate_RequiredKeys_NoneRegistered(t *testing.T) {
 	// All PRS keys are present for direct checks in Validate()
 	f.WriteString(`{
 		"log_level": "INFO",
-		"reference_genome_build": "GRCh38",
 		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
 		"allele_freq_source": {
 			"type": "bigquery_gnomad",
 			"gcp_project_id": "b",
 			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3_GRCh38",
+			"table_id_pattern": "genomes_v3",
 			"ancestry_mapping": {"EUR": "AF_nfe"}
 		},
-		"prs_model_source": {"type": "file", "path_or_table_uri": "/models/model.tsv"}
+		"prs_model_source": {
+			"type": "file",
+			"path_or_table_uri": "/models/model.tsv",
+			"snp_id_column_name": "rsid",
+			"effect_allele_column_name": "effect_allele",
+			"weight_column_name": "weight",
+			"chromosome_column_name": "chrom",
+			"position_column_name": "pos"
+		}
 	}`)
 	f.Close()
 

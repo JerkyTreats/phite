@@ -13,36 +13,35 @@ import (
 
 // Exported configuration keys
 const (
-	LogLevelKey                        = "log_level"
-	ReferenceGenomeBuildKey            = "reference_genome_build"
-	PRSStatsCacheGCPProjectIDKey       = "prs_stats_cache.gcp_project_id"
-	PRSStatsCacheDatasetIDKey          = "prs_stats_cache.dataset_id"
-	PRSStatsCacheTableIDKey            = "prs_stats_cache.table_id"
-	AlleleFreqSourceKey                = "allele_freq_source" // Parent key for the whole map
-	AlleleFreqSourceTypeKey            = "allele_freq_source.type"
-	AlleleFreqSourceGCPProjectIDKey    = "allele_freq_source.gcp_project_id"
-	AlleleFreqSourceDatasetIDPatternKey = "allele_freq_source.dataset_id_pattern"
-	AlleleFreqSourceTableIDPatternKey  = "allele_freq_source.table_id_pattern"
-	AlleleFreqSourceAncestryMappingKey = "allele_freq_source.ancestry_mapping"
-	PRSModelSourceTypeKey              = "prs_model_source.type"
-	PRSModelSourcePathOrTableURIKey    = "prs_model_source.path_or_table_uri"
-	PRSModelSNPIDColKey                = "prs_model_source.snp_id_column_name"
-	PRSModelEffectAlleleColKey         = "prs_model_source.effect_allele_column_name"
-	PRSModelOtherAlleleColKey          = "prs_model_source.other_allele_column_name"
-	PRSModelWeightColKey               = "prs_model_source.weight_column_name"
-	PRSModelChromosomeColKey           = "prs_model_source.chromosome_column_name"
-	PRSModelPositionColKey             = "prs_model_source.position_column_name"
-	PRSModelSourceModelIDColKey        = "prs_model_source.model_id_column_name" // Optional: Column name for the PRS model identifier (e.g., study_id)
-	PRSModelSourceTableNameKey                  = "prs_model_source.table_name"                             // Optional: Name of the table in DuckDB (defaults to associations_clean)
-	PRSModelSourceEffectAlleleFrequencyColKey = "prs_model_source.effect_allele_frequency_column_name"  // Optional
-	PRSModelSourceBetaValueColKey             = "prs_model_source.beta_value_column_name"               // Optional
-	PRSModelSourceBetaCILowerColKey           = "prs_model_source.beta_ci_lower_column_name"            // Optional
-	PRSModelSourceBetaCIUpperColKey           = "prs_model_source.beta_ci_upper_column_name"            // Optional
-	PRSModelSourceOddsRatioColKey             = "prs_model_source.odds_ratio_column_name"               // Optional
-	PRSModelSourceORCILowerColKey             = "prs_model_source.or_ci_lower_column_name"              // Optional
-	PRSModelSourceORCIUpperColKey             = "prs_model_source.or_ci_upper_column_name"              // Optional
-	PRSModelSourceVariantIDColKey             = "prs_model_source.variant_id_column_name"               // Optional
-	PRSModelSourceRSIDColKey                  = "prs_model_source.rsid_column_name"                     // Optional
+	LogLevelKey                               = "log_level"
+	PRSStatsCacheGCPProjectIDKey              = "prs_stats_cache.gcp_project_id"
+	PRSStatsCacheDatasetIDKey                 = "prs_stats_cache.dataset_id"
+	PRSStatsCacheTableIDKey                   = "prs_stats_cache.table_id"
+	AlleleFreqSourceKey                       = "allele_freq_source" // Parent key for the whole map
+	AlleleFreqSourceTypeKey                   = "allele_freq_source.type"
+	AlleleFreqSourceGCPProjectIDKey           = "allele_freq_source.gcp_project_id"
+	AlleleFreqSourceDatasetIDPatternKey       = "allele_freq_source.dataset_id_pattern"
+	AlleleFreqSourceTableIDPatternKey         = "allele_freq_source.table_id_pattern"
+	AlleleFreqSourceAncestryMappingKey        = "allele_freq_source.ancestry_mapping"
+	PRSModelSourceTypeKey                     = "prs_model_source.type"
+	PRSModelSourcePathOrTableURIKey           = "prs_model_source.path_or_table_uri"
+	PRSModelSNPIDColKey                       = "prs_model_source.snp_id_column_name"
+	PRSModelEffectAlleleColKey                = "prs_model_source.effect_allele_column_name"
+	PRSModelOtherAlleleColKey                 = "prs_model_source.other_allele_column_name"
+	PRSModelWeightColKey                      = "prs_model_source.weight_column_name"
+	PRSModelChromosomeColKey                  = "prs_model_source.chromosome_column_name"
+	PRSModelPositionColKey                    = "prs_model_source.position_column_name"
+	PRSModelSourceModelIDColKey               = "prs_model_source.model_id_column_name"                // Optional: Column name for the PRS model identifier (e.g., study_id)
+	PRSModelSourceTableNameKey                = "prs_model_source.table_name"                          // Optional: Name of the table in DuckDB (defaults to associations_clean)
+	PRSModelSourceEffectAlleleFrequencyColKey = "prs_model_source.effect_allele_frequency_column_name" // Optional
+	PRSModelSourceBetaValueColKey             = "prs_model_source.beta_value_column_name"              // Optional
+	PRSModelSourceBetaCILowerColKey           = "prs_model_source.beta_ci_lower_column_name"           // Optional
+	PRSModelSourceBetaCIUpperColKey           = "prs_model_source.beta_ci_upper_column_name"           // Optional
+	PRSModelSourceOddsRatioColKey             = "prs_model_source.odds_ratio_column_name"              // Optional
+	PRSModelSourceORCILowerColKey             = "prs_model_source.or_ci_lower_column_name"             // Optional
+	PRSModelSourceORCIUpperColKey             = "prs_model_source.or_ci_upper_column_name"             // Optional
+	PRSModelSourceVariantIDColKey             = "prs_model_source.variant_id_column_name"              // Optional
+	PRSModelSourceRSIDColKey                  = "prs_model_source.rsid_column_name"                    // Optional
 )
 
 var (
@@ -193,12 +192,6 @@ func Validate() error {
 		if !HasKey(key) {
 			missingKeys = append(missingKeys, key)
 		}
-	}
-
-	// 2. Enforce reference_genome_build == GRCh38 (case-insensitive)
-	build := GetString(ReferenceGenomeBuildKey)
-	if strings.TrimSpace(build) == "" || strings.ToUpper(build) != "GRCH38" {
-		return fmt.Errorf("%s must be 'GRCh38' (case-insensitive), got '%s'", ReferenceGenomeBuildKey, build)
 	}
 
 	// 3. Validate presence of required PRS reference config keys
