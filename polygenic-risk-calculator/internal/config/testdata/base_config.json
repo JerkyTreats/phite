@@ -1,0 +1,27 @@
+{
+  "log_level": "INFO",
+  "prs_stats_cache": {
+    "gcp_project_id": "p",
+    "dataset_id": "d",
+    "table_id": "t"
+  },
+  "allele_freq_source": {
+    "type": "bigquery_gnomad",
+    "gcp_project_id": "b",
+    "dataset_id_pattern": "gnomAD",
+    "table_id_pattern": "genomes_v3",
+    "ancestry_mapping": {
+      "EUR": "AF_nfe",
+      "AFR": "AF_afr"
+    }
+  },
+  "prs_model_source": {
+    "type": "file",
+    "path_or_table_uri": "/models/model.tsv",
+    "snp_id_column_name": "rsid",
+    "effect_allele_column_name": "effect_allele",
+    "weight_column_name": "weight",
+    "chromosome_column_name": "chrom",
+    "position_column_name": "pos"
+  }
+}

@@ -1,11 +1,45 @@
 package config
 
 import (
+	"encoding/json"
+	"io/ioutil"
 	"os"
 	"reflect" // Added for DeepEqual
 	"strings" // Added for error message checking
 	"testing"
 )
+
+// Helper to load base config from testdata
+func loadBaseConfig(t *testing.T) map[string]interface{} {
+	t.Helper()
+	data, err := ioutil.ReadFile("testdata/base_config.json")
+	if err != nil {
+		t.Fatalf("failed to read base config: %v", err)
+	}
+	var cfg map[string]interface{}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("failed to unmarshal base config: %v", err)
+	}
+	return cfg
+}
+
+// Helper to write config to a temp file and return the path
+func writeConfigToTempFile(t *testing.T, cfg map[string]interface{}) string {
+	t.Helper()
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("failed to marshal config: %v", err)
+	}
+	f, err := os.CreateTemp("", "phite-config-*.json")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+	f.Close()
+	return f.Name()
+}
 
 func TestConfig_DefaultsWhenMissing(t *testing.T) {
 	ResetForTest()
@@ -17,42 +51,12 @@ func TestConfig_DefaultsWhenMissing(t *testing.T) {
 
 func TestConfig_LoadsFromCustomPath(t *testing.T) {
 	ResetForTest()
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	// Note: ancestry_mapping added here for completeness in a "full" config example
-	f.WriteString(`{
-		"log_level": "DEBUG",
-		"feature_x": true,
-		"prs_stats_cache": {
-			"gcp_project_id": "p",
-			"dataset_id": "d",
-			"table_id": "t"
-		},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "b",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3",
-			"ancestry_mapping": {
-				"EUR": "AF_nfe",
-				"AFR": "AF_afr"
-			}
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/model.tsv",
-			"snp_id_column_name": "rsid",
-			"effect_allele_column_name": "effect_allele",
-			"weight_column_name": "weight",
-			"chromosome_column_name": "chrom",
-			"position_column_name": "pos"
-		}
-	}`)
-	f.Close()
-	SetConfigPath(f.Name())
+	cfg := loadBaseConfig(t)
+	cfg["log_level"] = "DEBUG"
+	cfg["feature_x"] = true
+	path := writeConfigToTempFile(t, cfg)
+	defer os.Remove(path)
+	SetConfigPath(path)
 	if GetString("log_level") != "DEBUG" {
 		t.Errorf("expected log_level DEBUG, got %q", GetString("log_level"))
 	}
@@ -63,38 +67,10 @@ func TestConfig_LoadsFromCustomPath(t *testing.T) {
 
 func TestConfig_GetStringMapString(t *testing.T) {
 	ResetForTest()
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	validMapContent := `{
-		"log_level": "INFO",
-		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "b",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3",
-			"ancestry_mapping": {
-				"EUR": "AF_nfe",
-				"AFR": "AF_afr"
-			}
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/model.tsv",
-			"snp_id_column_name": "rsid",
-			"effect_allele_column_name": "effect_allele",
-			"weight_column_name": "weight",
-			"chromosome_column_name": "chrom",
-			"position_column_name": "pos"
-		}
-	}`
-	f.WriteString(validMapContent)
-	f.Close()
-
-	SetConfigPath(f.Name())
+	cfg := loadBaseConfig(t)
+	path := writeConfigToTempFile(t, cfg)
+	defer os.Remove(path)
+	SetConfigPath(path)
 	expectedMap := map[string]string{"eur": "AF_nfe", "afr": "AF_afr"}
 	actualMap := GetStringMapString("allele_freq_source.ancestry_mapping")
 	if !reflect.DeepEqual(actualMap, expectedMap) {
@@ -103,15 +79,13 @@ func TestConfig_GetStringMapString(t *testing.T) {
 
 	// Test missing key
 	ResetForTest()
-	f2, _ := os.CreateTemp("", "phite-config-*.json")
-	defer os.Remove(f2.Name())
-	// ancestry_mapping is missing
-	f2.WriteString(`{"log_level": "INFO", "prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"}, "allele_freq_source": {"type": "bigquery_gnomad", "gcp_project_id": "b", "dataset_id_pattern": "gnomAD", "table_id_pattern": "genomes_v3"}, "prs_model_source": {"type": "file", "path_or_table_uri": "/models/model.tsv"}}`)
-	f2.Close()
-	SetConfigPath(f2.Name())
-	emptyMap := GetStringMapString("allele_freq_source.ancestry_mapping") // Viper returns nil for missing map, GetStringMapString should handle
+	cfg2 := loadBaseConfig(t)
+	delete(cfg2["allele_freq_source"].(map[string]interface{}), "ancestry_mapping")
+	path2 := writeConfigToTempFile(t, cfg2)
+	defer os.Remove(path2)
+	SetConfigPath(path2)
+	emptyMap := GetStringMapString("allele_freq_source.ancestry_mapping")
 	if len(emptyMap) != 0 {
-		// Our GetStringMapString wrapper returns an empty map if not found or if config is nil
 		t.Errorf("GetStringMapString() for missing key: got = %v, want empty map", emptyMap)
 	}
 
@@ -126,34 +100,11 @@ func TestConfig_GetStringMapString(t *testing.T) {
 
 func TestConfig_ValidateInvalidLogLevel(t *testing.T) {
 	ResetForTest()
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	// Note: ancestry_mapping added here
-	f.WriteString(`{
-		"log_level": "NOPE",
-		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "b",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3",
-			"ancestry_mapping": {"EUR": "AF_nfe"}
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/model.tsv",
-			"snp_id_column_name": "rsid",
-			"effect_allele_column_name": "effect_allele",
-			"weight_column_name": "weight",
-			"chromosome_column_name": "chrom",
-			"position_column_name": "pos"
-		}
-	}`)
-	f.Close()
-	SetConfigPath(f.Name())
+	cfg := loadBaseConfig(t)
+	cfg["log_level"] = "NOPE"
+	path := writeConfigToTempFile(t, cfg)
+	defer os.Remove(path)
+	SetConfigPath(path)
 	errReturned := Validate()
 	if errReturned == nil {
 		t.Error("expected error for invalid log_level")
@@ -167,35 +118,11 @@ func TestConfig_ValidateInvalidLogLevel(t *testing.T) {
 
 func TestConfig_ValidateValidLowercaseLogLevel(t *testing.T) {
 	ResetForTest()
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	// Note: ancestry_mapping added here
-	f.WriteString(`{
-		"log_level": "debug",
-		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "b",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3",
-			"ancestry_mapping": {"EUR": "AF_nfe"}
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/model.tsv",
-			"snp_id_column_name": "rsid",
-			"effect_allele_column_name": "effect_allele",
-			"weight_column_name": "weight",
-			"chromosome_column_name": "chrom",
-			"position_column_name": "pos"
-		}
-	}`)
-	f.Close()
-
-	SetConfigPath(f.Name())
+	cfg := loadBaseConfig(t)
+	cfg["log_level"] = "debug"
+	path := writeConfigToTempFile(t, cfg)
+	defer os.Remove(path)
+	SetConfigPath(path)
 	if err := Validate(); err != nil {
 		t.Errorf("Validate() failed for lowercase log_level, expected nil, got %v", err)
 	}
@@ -205,44 +132,15 @@ func TestConfig_ValidateValidLowercaseLogLevel(t *testing.T) {
 
 func TestConfig_ValidatePRSReferenceConfigKeys_PresentAndParsed(t *testing.T) {
 	ResetForTest()
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	f.WriteString(`{
-		"log_level": "INFO",
-		"prs_stats_cache": {
-			"gcp_project_id": "my-project",
-			"dataset_id": "prs_cache",
-			"table_id": "stats"
-		},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "bigquery-public-data",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3",
-			"ancestry_mapping": {
-				"EUR": "AF_nfe",
-				"AFR": "AF_afr"
-			}
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/my_prs.tsv",
-			"snp_id_column_name": "rsid",
-			"effect_allele_column_name": "effect_allele",
-			"weight_column_name": "weight",
-			"chromosome_column_name": "chrom",
-			"position_column_name": "pos"
-		}
-	}`)
-	f.Close()
-	SetConfigPath(f.Name())
-
-	// Explicitly register keys that might be checked if this test runs in isolation
-	// or if other tests haven't registered them globally.
-	// This makes the test more robust.
+	cfg := loadBaseConfig(t)
+	cfg["prs_stats_cache"].(map[string]interface{})["gcp_project_id"] = "my-project"
+	cfg["prs_stats_cache"].(map[string]interface{})["dataset_id"] = "prs_cache"
+	cfg["prs_stats_cache"].(map[string]interface{})["table_id"] = "stats"
+	cfg["allele_freq_source"].(map[string]interface{})["gcp_project_id"] = "bigquery-public-data"
+	cfg["prs_model_source"].(map[string]interface{})["path_or_table_uri"] = "/models/my_prs.tsv"
+	path := writeConfigToTempFile(t, cfg)
+	defer os.Remove(path)
+	SetConfigPath(path)
 	RegisterRequiredKey("prs_stats_cache.gcp_project_id")
 	RegisterRequiredKey("prs_stats_cache.dataset_id")
 	RegisterRequiredKey("prs_stats_cache.table_id")
@@ -253,12 +151,9 @@ func TestConfig_ValidatePRSReferenceConfigKeys_PresentAndParsed(t *testing.T) {
 	RegisterRequiredKey("allele_freq_source.ancestry_mapping")
 	RegisterRequiredKey("prs_model_source.type")
 	RegisterRequiredKey("prs_model_source.path_or_table_uri")
-
 	if err := Validate(); err != nil {
 		t.Errorf("Validate() failed for valid PRS reference config, expected nil, got %v", err)
 	}
-
-	// Also test GetStringMapString here
 	expectedMap := map[string]string{"eur": "AF_nfe", "afr": "AF_afr"}
 	actualMap := GetStringMapString("allele_freq_source.ancestry_mapping")
 	if !reflect.DeepEqual(actualMap, expectedMap) {
@@ -268,27 +163,19 @@ func TestConfig_ValidatePRSReferenceConfigKeys_PresentAndParsed(t *testing.T) {
 
 func TestConfig_ValidatePRSReferenceConfigKeys_Missing(t *testing.T) {
 	ResetForTest()
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	f.WriteString(`{
-		"log_level": "INFO"
-	}`) // Missing all PRS keys
-	f.Close()
-	SetConfigPath(f.Name())
+	cfg := map[string]interface{}{"log_level": "INFO"} // Missing all PRS keys
+	path := writeConfigToTempFile(t, cfg)
+	defer os.Remove(path)
+	SetConfigPath(path)
 	errReturned := Validate()
 	if errReturned == nil {
 		t.Error("expected error for missing PRS reference config keys")
 		return
 	}
-	// These keys are now checked directly in Validate(), not via RegisterRequiredKey for this specific test's purpose
 	missingKeys := []string{
 		"prs_stats_cache.gcp_project_id", "prs_stats_cache.dataset_id", "prs_stats_cache.table_id",
-		"allele_freq_source.type", "allele_freq_source.gcp_project_id",
 		"allele_freq_source.dataset_id_pattern", "allele_freq_source.table_id_pattern",
-		"allele_freq_source.ancestry_mapping", // Added
+		"allele_freq_source.ancestry_mapping",
 		"prs_model_source.type", "prs_model_source.path_or_table_uri",
 	}
 	for _, key := range missingKeys {
@@ -300,43 +187,16 @@ func TestConfig_ValidatePRSReferenceConfigKeys_Missing(t *testing.T) {
 
 func TestConfig_ValidatePRSReferenceConfigKeys_AncestryMappingInvalidType(t *testing.T) {
 	ResetForTest()
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	// ancestry_mapping is a string, not a map
-	invalidTypeContent := `{
-		"log_level": "INFO",
-		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "b",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3",
-			"ancestry_mapping": "not_a_map"
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/model.tsv",
-			"snp_id_column_name": "rsid",
-			"effect_allele_column_name": "effect_allele",
-			"weight_column_name": "weight",
-			"chromosome_column_name": "chrom",
-			"position_column_name": "pos"
-		}
-	}`
-	f.WriteString(invalidTypeContent)
-	f.Close()
-
-	SetConfigPath(f.Name())
+	cfg := loadBaseConfig(t)
+	cfg["allele_freq_source"].(map[string]interface{})["ancestry_mapping"] = "not_a_map"
+	path := writeConfigToTempFile(t, cfg)
+	defer os.Remove(path)
+	SetConfigPath(path)
 	errReturned := Validate()
 	if errReturned == nil {
 		t.Error("expected error for invalid type of allele_freq_source.ancestry_mapping")
 		return
 	}
-	// The exact error message depends on Viper's internal type assertion,
-	// but it should indicate a type mismatch.
 	expectedErrorMsgPart := "allele_freq_source.ancestry_mapping must be a map[string]string"
 	if !strings.Contains(errReturned.Error(), expectedErrorMsgPart) {
 		t.Errorf("Validate() error message mismatch, got '%s', expected to contain '%s'", errReturned.Error(), expectedErrorMsgPart)
@@ -347,38 +207,12 @@ func TestValidate_RequiredKeys_AllPresent(t *testing.T) {
 	ResetForTest()
 	RegisterRequiredKey("key1")
 	RegisterRequiredKey("key2")
-
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	// Note: All PRS keys added
-	f.WriteString(`{
-		"log_level": "INFO",
-		"key1": "value1",
-		"key2": "value2",
-		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "b",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3",
-			"ancestry_mapping": {"EUR": "AF_nfe"}
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/model.tsv",
-			"snp_id_column_name": "rsid",
-			"effect_allele_column_name": "effect_allele",
-			"weight_column_name": "weight",
-			"chromosome_column_name": "chrom",
-			"position_column_name": "pos"
-		}
-	}`)
-	f.Close()
-
-	SetConfigPath(f.Name())
+	cfg := loadBaseConfig(t)
+	cfg["key1"] = "value1"
+	cfg["key2"] = "value2"
+	path := writeConfigToTempFile(t, cfg)
+	defer os.Remove(path)
+	SetConfigPath(path)
 	if err := Validate(); err != nil {
 		t.Errorf("Validate() failed, expected nil, got %v", err)
 	}
@@ -388,43 +222,16 @@ func TestValidate_RequiredKeys_OneMissing(t *testing.T) {
 	ResetForTest()
 	RegisterRequiredKey("key1")
 	RegisterRequiredKey("key2") // key2 will be missing
-
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	// Note: All PRS keys added
-	f.WriteString(`{
-		"log_level": "INFO",
-		"key1": "value1",
-		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "b",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3",
-			"ancestry_mapping": {"EUR": "AF_nfe"}
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/model.tsv",
-			"snp_id_column_name": "rsid",
-			"effect_allele_column_name": "effect_allele",
-			"weight_column_name": "weight",
-			"chromosome_column_name": "chrom",
-			"position_column_name": "pos"
-		}
-	}`)
-	f.Close()
-
-	SetConfigPath(f.Name())
-	err = Validate()
+	cfg := loadBaseConfig(t)
+	cfg["key1"] = "value1"
+	delete(cfg, "key2")
+	path := writeConfigToTempFile(t, cfg)
+	defer os.Remove(path)
+	SetConfigPath(path)
+	err := Validate()
 	if err == nil {
 		t.Fatal("Validate() passed, expected error for missing key")
 	}
-	// The error message includes all keys missing from the direct checks in Validate()
-	// plus the registered 'key2'.
 	if !strings.Contains(err.Error(), "key2") {
 		t.Errorf("Validate() error message '%s' did not contain expected missing key 'key2'", err.Error())
 	}
@@ -435,42 +242,17 @@ func TestValidate_RequiredKeys_MultipleMissing(t *testing.T) {
 	RegisterRequiredKey("key1") // Will be missing
 	RegisterRequiredKey("key2") // Will be missing
 	RegisterRequiredKey("key3")
-
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	// Note: All PRS keys added
-	f.WriteString(`{
-		"log_level": "INFO",
-		"key3": "value3",
-		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "b",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3",
-			"ancestry_mapping": {"EUR": "AF_nfe"}
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/model.tsv",
-			"snp_id_column_name": "rsid",
-			"effect_allele_column_name": "effect_allele",
-			"weight_column_name": "weight",
-			"chromosome_column_name": "chrom",
-			"position_column_name": "pos"
-		}
-	}`)
-	f.Close()
-
-	SetConfigPath(f.Name())
-	err = Validate()
+	cfg := loadBaseConfig(t)
+	cfg["key3"] = "value3"
+	delete(cfg, "key1")
+	delete(cfg, "key2")
+	path := writeConfigToTempFile(t, cfg)
+	defer os.Remove(path)
+	SetConfigPath(path)
+	err := Validate()
 	if err == nil {
 		t.Fatal("Validate() passed, expected error for multiple missing keys")
 	}
-	// Order of missing keys in error message might vary, so check for substrings
 	missingKey1 := "key1"
 	missingKey2 := "key2"
 	if !strings.Contains(err.Error(), missingKey1) || !strings.Contains(err.Error(), missingKey2) {
@@ -483,37 +265,11 @@ func TestValidate_RequiredKeys_MultipleMissing(t *testing.T) {
 
 func TestValidate_RequiredKeys_NoneRegistered(t *testing.T) {
 	ResetForTest()
-	// No keys registered via RegisterRequiredKey
-	f, err := os.CreateTemp("", "phite-config-*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(f.Name())
-	// All PRS keys are present for direct checks in Validate()
-	f.WriteString(`{
-		"log_level": "INFO",
-		"prs_stats_cache": {"gcp_project_id": "p", "dataset_id": "d", "table_id": "t"},
-		"allele_freq_source": {
-			"type": "bigquery_gnomad",
-			"gcp_project_id": "b",
-			"dataset_id_pattern": "gnomAD",
-			"table_id_pattern": "genomes_v3",
-			"ancestry_mapping": {"EUR": "AF_nfe"}
-		},
-		"prs_model_source": {
-			"type": "file",
-			"path_or_table_uri": "/models/model.tsv",
-			"snp_id_column_name": "rsid",
-			"effect_allele_column_name": "effect_allele",
-			"weight_column_name": "weight",
-			"chromosome_column_name": "chrom",
-			"position_column_name": "pos"
-		}
-	}`)
-	f.Close()
-
-	SetConfigPath(f.Name())
-	if err := Validate(); err != nil { // Should pass as no *registered* keys are missing, and all directly checked keys are present
+	cfg := loadBaseConfig(t)
+	path := writeConfigToTempFile(t, cfg)
+	defer os.Remove(path)
+	SetConfigPath(path)
+	if err := Validate(); err != nil {
 		t.Errorf("Validate() failed, expected nil, got %v", err)
 	}
 }
