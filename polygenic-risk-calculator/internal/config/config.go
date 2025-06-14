@@ -150,3 +150,11 @@ func HasKey(key string) bool {
 	}
 	return config.IsSet(key)
 }
+
+// SetForTest sets a configuration value for testing purposes only.
+func SetForTest(key string, value interface{}) {
+	_ = initConfig()
+	if config != nil {
+		config.Set(key, value)
+	}
+}

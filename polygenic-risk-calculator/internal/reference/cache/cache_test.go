@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"phite.io/polygenic-risk-calculator/internal/ancestry"
 	"phite.io/polygenic-risk-calculator/internal/config"
 	reference_stats "phite.io/polygenic-risk-calculator/internal/reference/stats"
 )
@@ -211,6 +212,76 @@ func TestRepositoryCache_GetReferenceStats(t *testing.T) {
 		Repo:    repo,
 		TableID: config.GetString(TableIDKey),
 	}
-	_, _ = cache.GetReferenceStats(context.Background(), "EUR", "Height", "test_model")
+
+	// Create ancestry object for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
+	_, _ = cache.GetReferenceStats(context.Background(), eur, "Height", "test_model")
 	assert.True(t, called)
+}
+
+func TestRepositoryCache_GetReferenceStats_WithGenderedAncestry(t *testing.T) {
+	var capturedArgs []interface{}
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			capturedArgs = args
+			return []map[string]interface{}{}, nil
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	// Test with gendered ancestry to ensure correct code generation
+	eurMale, err := ancestry.New("EUR", "MALE")
+	assert.NoError(t, err)
+
+	_, _ = cache.GetReferenceStats(context.Background(), eurMale, "Height", "test_model")
+
+	// Verify that the ancestry code "EUR_MALE" was used in the query
+	assert.Len(t, capturedArgs, 3)
+	assert.Equal(t, "EUR_MALE", capturedArgs[0])
+	assert.Equal(t, "Height", capturedArgs[1])
+	assert.Equal(t, "test_model", capturedArgs[2])
+}
+
+func TestRepositoryCache_GetReferenceStats_CacheKeyGeneration(t *testing.T) {
+	tests := []struct {
+		name         string
+		population   string
+		gender       string
+		expectedCode string
+	}{
+		{"European combined", "EUR", "", "EUR"},
+		{"European male", "EUR", "MALE", "EUR_MALE"},
+		{"African female", "AFR", "FEMALE", "AFR_FEMALE"},
+		{"South Asian male", "SAS", "MALE", "SAS_MALE"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedArgs []interface{}
+			repo := &mockRepo{
+				queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+					capturedArgs = args
+					return []map[string]interface{}{}, nil
+				},
+			}
+			cache := &RepositoryCache{
+				Repo:    repo,
+				TableID: config.GetString(TableIDKey),
+			}
+
+			// Create ancestry object
+			ancestry, err := ancestry.New(tt.population, tt.gender)
+			assert.NoError(t, err)
+
+			_, _ = cache.GetReferenceStats(context.Background(), ancestry, "Height", "test_model")
+
+			// Verify that the correct ancestry code was used
+			assert.Equal(t, tt.expectedCode, capturedArgs[0])
+		})
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"phite.io/polygenic-risk-calculator/internal/ancestry"
 	"phite.io/polygenic-risk-calculator/internal/config"
 	"phite.io/polygenic-risk-calculator/internal/db"
 	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
@@ -21,7 +22,6 @@ func init() {
 	config.RegisterRequiredKey("reference.model_table")
 	config.RegisterRequiredKey("reference.allele_freq_table")
 	config.RegisterRequiredKey("reference.column_mapping")
-	config.RegisterRequiredKey("reference.ancestry_mapping")
 
 	// User GCP configuration for billing
 	config.RegisterRequiredKey("user.gcp_project") // For billing project
@@ -38,7 +38,6 @@ type ReferenceService struct {
 	modelTable      string
 	alleleFreqTable string
 	columnMapping   map[string]string
-	ancestryMapping map[string]string
 }
 
 // NewReferenceService creates a new reference service
@@ -72,7 +71,6 @@ func NewReferenceService() *ReferenceService {
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
-		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
 	}
 }
 
@@ -117,16 +115,14 @@ func (s *ReferenceService) LoadModel(ctx context.Context, modelID string) (*mode
 }
 
 // GetAlleleFrequencies retrieves allele frequencies for the given variants and ancestry
-func (s *ReferenceService) GetAlleleFrequencies(ctx context.Context, variants []model.Variant, ancestry string) (map[string]float64, error) {
+func (s *ReferenceService) GetAlleleFrequencies(ctx context.Context, variants []model.Variant, ancestry *ancestry.Ancestry) (map[string]float64, error) {
 	if len(variants) == 0 {
 		return map[string]float64{}, nil
 	}
 
-	// Get the ancestry-specific column name
-	ancestryCol, ok := s.ancestryMapping[ancestry]
-	if !ok {
-		return nil, fmt.Errorf("unsupported ancestry: %s", ancestry)
-	}
+	// Get all columns needed for this ancestry's precedence logic
+	columns := ancestry.ColumnPrecedence()
+	selectCols := append([]string{"chrom", "pos", "ref", "alt"}, columns...)
 
 	// Build variant filters
 	var filters []string
@@ -141,15 +137,15 @@ func (s *ReferenceService) GetAlleleFrequencies(ctx context.Context, variants []
 		args = append(args, chrom, pos, ref, alt)
 	}
 
-	// Build and execute query
+	// Build and execute query to retrieve all relevant columns
 	query := fmt.Sprintf(
-		"SELECT chrom, pos, ref, alt, %s as freq FROM %s WHERE %s",
-		ancestryCol,
+		"SELECT %s FROM %s WHERE %s",
+		strings.Join(selectCols, ", "),
 		s.alleleFreqTable,
 		strings.Join(filters, " OR "),
 	)
 
-	logging.Info("Querying allele frequencies for %d variants", len(variants))
+	logging.Info("Querying allele frequencies for %d variants with ancestry %s", len(variants), ancestry.Code())
 	rows, err := s.gnomadDB.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query allele frequencies: %w", err)
@@ -157,17 +153,27 @@ func (s *ReferenceService) GetAlleleFrequencies(ctx context.Context, variants []
 
 	freqs := make(map[string]float64)
 	for _, row := range rows {
+		// Let ancestry object select the best frequency from available columns
+		freq, usedCol, err := ancestry.SelectFrequency(row)
+		if err != nil {
+			// Skip variants with no frequency data available
+			logging.Debug("No frequency data available for variant in row: %v", err)
+			continue
+		}
+
 		chrom := utils.ToString(row["chrom"])
 		pos := utils.ToInt64(row["pos"])
 		ref := utils.ToString(row["ref"])
 		alt := utils.ToString(row["alt"])
-		freq := utils.ToFloat64(row["freq"])
 
 		variantID := model.FormatVariantID(chrom, pos, ref, alt)
 		freqs[variantID] = freq
+
+		// Log which column was used for debugging
+		logging.Debug("Used column %s for variant %s (frequency: %f)", usedCol, variantID, freq)
 	}
 
-	logging.Info("Retrieved allele frequencies for %d variants", len(freqs))
+	logging.Info("Retrieved allele frequencies for %d variants using ancestry %s", len(freqs), ancestry.Code())
 	return freqs, nil
 }
 
@@ -216,10 +222,13 @@ func (s *ReferenceService) convertRowToVariant(row map[string]interface{}) (mode
 
 // GetReferenceStats retrieves PRS reference statistics for a given ancestry, trait, and model ID.
 // It first attempts to fetch from the cache, then falls back to on-the-fly computation if needed.
-func (s *ReferenceService) GetReferenceStats(ctx context.Context, ancestry, trait, modelID string) (*reference_stats.ReferenceStats, error) {
+func (s *ReferenceService) GetReferenceStats(ctx context.Context, ancestry *ancestry.Ancestry, trait, modelID string) (*reference_stats.ReferenceStats, error) {
+	// Use ancestry code for cache operations
+	ancestryCode := ancestry.Code()
+
 	// Try to get from cache first
 	stats, err := s.referenceCache.Get(ctx, reference_cache.StatsRequest{
-		Ancestry: ancestry,
+		Ancestry: ancestryCode,
 		Trait:    trait,
 		ModelID:  modelID,
 	})
@@ -235,14 +244,14 @@ func (s *ReferenceService) GetReferenceStats(ctx context.Context, ancestry, trai
 }
 
 // computeAndCacheStats computes PRS statistics on the fly and caches the result.
-func (s *ReferenceService) computeAndCacheStats(ctx context.Context, ancestry, trait, modelID string) (*reference_stats.ReferenceStats, error) {
+func (s *ReferenceService) computeAndCacheStats(ctx context.Context, ancestry *ancestry.Ancestry, trait, modelID string) (*reference_stats.ReferenceStats, error) {
 	// Load the PRS model
 	model, err := s.LoadModel(ctx, modelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load PRS model: %w", err)
 	}
 
-	// Get allele frequencies
+	// Get allele frequencies using ancestry object
 	freqs, err := s.GetAlleleFrequencies(ctx, model.Variants, ancestry)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get allele frequencies: %w", err)
@@ -254,14 +263,15 @@ func (s *ReferenceService) computeAndCacheStats(ctx context.Context, ancestry, t
 		return nil, fmt.Errorf("failed to compute PRS statistics: %w", err)
 	}
 
-	// Add metadata
-	stats.Ancestry = ancestry
+	// Add metadata using ancestry code
+	ancestryCode := ancestry.Code()
+	stats.Ancestry = ancestryCode
 	stats.Trait = trait
 	stats.Model = modelID
 
-	// Cache the result
+	// Cache the result using ancestry code
 	if err := s.referenceCache.Store(ctx, reference_cache.StatsRequest{
-		Ancestry: ancestry,
+		Ancestry: ancestryCode,
 		Trait:    trait,
 		ModelID:  modelID,
 	}, stats); err != nil {

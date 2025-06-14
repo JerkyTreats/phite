@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
+	"phite.io/polygenic-risk-calculator/internal/ancestry"
+	"phite.io/polygenic-risk-calculator/internal/config"
 	"phite.io/polygenic-risk-calculator/internal/genotype"
 	gwas "phite.io/polygenic-risk-calculator/internal/gwas"
 	gwasdata "phite.io/polygenic-risk-calculator/internal/gwas"
@@ -45,7 +47,19 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 		return PipelineOutput{}, errors.New("missing required input")
 	}
 
+	// Initialize ancestry from configuration
+	ancestryObj, err := ancestry.NewFromConfig()
+	if err != nil {
+		logging.Error("Failed to initialize ancestry from configuration: %v", err)
+		return PipelineOutput{}, fmt.Errorf("failed to initialize ancestry: %w", err)
+	}
+	logging.Info("Initialized ancestry: %s (%s)", ancestryObj.Code(), ancestryObj.Description())
+
 	gwasService := gwas.NewGWASService()
+	if gwasService == nil {
+		logging.Error("Failed to initialize GWAS service")
+		return PipelineOutput{}, errors.New("failed to initialize GWAS service")
+	}
 
 	gwasRecords, err := gwasService.FetchGWASRecords(ctx, input.SNPs)
 	if err != nil {
@@ -107,10 +121,12 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 		prsResults[trait] = prsResult
 		// Load reference stats for this trait
 
+		modelId := config.GetString("reference.model")
+
 		refService := reference.NewReferenceService()
-		refStats, err := refService.GetReferenceStats(ctx, input.Ancestry, trait, input.Model)
+		refStats, err := refService.GetReferenceStats(ctx, ancestryObj, trait, modelId)
 		if err != nil {
-			logging.Error("Failed to get reference stats for trait %s (ancestry: %s, model: %s): %v", trait, input.Ancestry, input.Model, err)
+			logging.Error("Failed to get reference stats for trait %s (ancestry: %s, model: %s): %v", trait, ancestryObj.Code(), modelId, err)
 			return PipelineOutput{}, fmt.Errorf("failed to get reference stats for trait %s: %w", trait, err)
 		}
 		// Normalize PRS

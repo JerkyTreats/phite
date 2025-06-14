@@ -13,6 +13,7 @@ import (
 	reference_cache "phite.io/polygenic-risk-calculator/internal/reference/cache"
 	reference_stats "phite.io/polygenic-risk-calculator/internal/reference/stats"
 
+	"phite.io/polygenic-risk-calculator/internal/ancestry"
 	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
@@ -57,7 +58,7 @@ func TestMain(m *testing.M) {
 	configPath := filepath.Join(tmpDir, "config.json")
 	config.SetConfigPath(configPath)
 
-	// Create config file with test values
+	// Create config file with test values (removed ancestry_mapping)
 	configContent := `{
 		"reference": {
 			"model_table": "model_table",
@@ -69,9 +70,6 @@ func TestMain(m *testing.M) {
 				"effect_allele": "effect_allele",
 				"other_allele": "other_allele",
 				"effect_freq": "effect_freq"
-			},
-			"ancestry_mapping": {
-				"EUR": "eur_freq"
 			}
 		}
 	}`
@@ -97,7 +95,6 @@ func TestReferenceService_LoadModel_Success(t *testing.T) {
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
-		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
 	}
 	model, err := service.LoadModel(context.Background(), "test_model")
 	assert.NoError(t, err)
@@ -118,7 +115,6 @@ func TestReferenceService_LoadModel_DBError(t *testing.T) {
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
-		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
 	}
 	model, err := service.LoadModel(context.Background(), "test_model")
 	assert.Error(t, err)
@@ -137,7 +133,6 @@ func TestReferenceService_LoadModel_NoRows(t *testing.T) {
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
-		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
 	}
 	model, err := service.LoadModel(context.Background(), "test_model")
 	assert.Error(t, err)
@@ -148,7 +143,7 @@ func TestReferenceService_GetAlleleFrequencies_Success(t *testing.T) {
 	repo := &mockRepo{
 		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
 			return []map[string]interface{}{
-				{"chrom": "1", "pos": int64(1000), "ref": "A", "alt": "G", "freq": 0.2},
+				{"chrom": "1", "pos": int64(1000), "ref": "A", "alt": "G", "AF_nfe": 0.2},
 			}, nil
 		},
 	}
@@ -158,26 +153,49 @@ func TestReferenceService_GetAlleleFrequencies_Success(t *testing.T) {
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
-		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
 	}
+
+	// Create ancestry object for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
 	variants := []model.Variant{{ID: "1:1000:A:G"}}
-	freqs, err := service.GetAlleleFrequencies(context.Background(), variants, "EUR")
+	freqs, err := service.GetAlleleFrequencies(context.Background(), variants, eur)
 	assert.NoError(t, err)
 	assert.Equal(t, 0.2, freqs["1:1000:A:G"])
 }
 
 func TestReferenceService_GetAlleleFrequencies_UnsupportedAncestry(t *testing.T) {
+	// Test with invalid ancestry - should fail during creation
+	_, err := ancestry.New("INVALID", "")
+	assert.Error(t, err) // This should fail, confirming validation works
+}
+
+func TestReferenceService_GetAlleleFrequencies_NoFrequencyData(t *testing.T) {
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			return []map[string]interface{}{
+				{"chrom": "1", "pos": int64(1000), "ref": "A", "alt": "G", "AF_nfe": 0.0}, // Zero frequency
+			}, nil
+		},
+	}
 	service := &ReferenceService{
-		gnomadDB:        &mockRepo{},
+		gnomadDB:        repo,
 		referenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
-		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
 	}
+
+	// Create ancestry object for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
 	variants := []model.Variant{{ID: "1:1000:A:G"}}
-	_, err := service.GetAlleleFrequencies(context.Background(), variants, "AFR")
-	assert.Error(t, err)
+	freqs, err := service.GetAlleleFrequencies(context.Background(), variants, eur)
+	assert.NoError(t, err)
+	// Should return empty map when no frequency data available
+	assert.Empty(t, freqs)
 }
 
 func TestReferenceService_GetReferenceStats_CacheHit(t *testing.T) {
@@ -192,9 +210,13 @@ func TestReferenceService_GetReferenceStats_CacheHit(t *testing.T) {
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
-		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
 	}
-	stats, err := service.GetReferenceStats(context.Background(), "EUR", "Height", "test_model")
+
+	// Create ancestry object for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
+	stats, err := service.GetReferenceStats(context.Background(), eur, "Height", "test_model")
 	assert.NoError(t, err)
 	assert.NotNil(t, stats)
 	assert.Equal(t, 0.5, stats.Mean)
@@ -218,7 +240,7 @@ func TestReferenceService_GetReferenceStats_CacheMissAndCompute(t *testing.T) {
 				}, nil
 			}
 			return []map[string]interface{}{
-				{"chrom": "1", "pos": int64(1000), "ref": "A", "alt": "G", "freq": 0.2},
+				{"chrom": "1", "pos": int64(1000), "ref": "A", "alt": "G", "AF_nfe": 0.2},
 			}, nil
 		},
 	}
@@ -228,9 +250,13 @@ func TestReferenceService_GetReferenceStats_CacheMissAndCompute(t *testing.T) {
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
-		ancestryMapping: config.GetStringMapString("reference.ancestry_mapping"),
 	}
-	stats, err := service.GetReferenceStats(context.Background(), "EUR", "Height", "test_model")
+
+	// Create ancestry object for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
+	stats, err := service.GetReferenceStats(context.Background(), eur, "Height", "test_model")
 	assert.NoError(t, err)
 	assert.NotNil(t, stats)
 }

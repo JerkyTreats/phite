@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"phite.io/polygenic-risk-calculator/internal/ancestry"
 	"phite.io/polygenic-risk-calculator/internal/config"
 	"phite.io/polygenic-risk-calculator/internal/db"
 	dbinterface "phite.io/polygenic-risk-calculator/internal/db/interface"
@@ -23,13 +24,13 @@ func init() {
 
 // ReferenceStatsBackend defines the interface for any backend that can provide reference stats.
 type ReferenceStatsBackend interface {
-	GetReferenceStats(ctx context.Context, ancestry, trait, model string) (*reference_stats.ReferenceStats, error)
+	GetReferenceStats(ctx context.Context, ancestry *ancestry.Ancestry, trait, model string) (*reference_stats.ReferenceStats, error)
 	Close() error
 }
 
 // StatsRequest represents a request for reference statistics.
 type StatsRequest struct {
-	Ancestry string
+	Ancestry string // Still use string internally for cache storage
 	Trait    string
 	ModelID  string
 }
@@ -70,10 +71,12 @@ func NewRepositoryCache(params ...map[string]string) (*RepositoryCache, error) {
 	}, nil
 }
 
-// GetReferenceStats implements ReferenceStatsBackend interface.
-func (c *RepositoryCache) GetReferenceStats(ctx context.Context, ancestry, trait, model string) (*reference_stats.ReferenceStats, error) {
+// GetReferenceStats implements ReferenceStatsBackend interface with ancestry objects.
+func (c *RepositoryCache) GetReferenceStats(ctx context.Context, ancestry *ancestry.Ancestry, trait, model string) (*reference_stats.ReferenceStats, error) {
+	// Convert ancestry object to code for cache operations
+	ancestryCode := ancestry.Code()
 	return c.Get(ctx, StatsRequest{
-		Ancestry: ancestry,
+		Ancestry: ancestryCode,
 		Trait:    trait,
 		ModelID:  model,
 	})
@@ -143,5 +146,6 @@ func (c *RepositoryCache) Store(ctx context.Context, req StatsRequest, stats *re
 		return fmt.Errorf("failed to store stats in cache: %w", err)
 	}
 
+	logging.Debug("Stored stats in cache for ancestry=%s, trait=%s, model=%s", req.Ancestry, req.Trait, req.ModelID)
 	return nil
 }
