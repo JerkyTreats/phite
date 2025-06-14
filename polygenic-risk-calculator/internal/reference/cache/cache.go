@@ -3,6 +3,7 @@ package reference_cache
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"phite.io/polygenic-risk-calculator/internal/ancestry"
 	"phite.io/polygenic-risk-calculator/internal/config"
@@ -12,14 +13,16 @@ import (
 	reference_stats "phite.io/polygenic-risk-calculator/internal/reference/stats"
 )
 
+// Configuration keys for cache settings
 const (
-	// TableIDKey is the configuration key for the reference stats table ID
-	TableIDKey = "reference_stats.table_id"
+	TableIDKey        = "bigquery.table_id"
+	CacheBatchSizeKey = "cache.batch_size"
 )
 
 func init() {
 	// Register required configuration keys
 	config.RegisterRequiredKey(TableIDKey)
+	// Batch operation configuration keys have defaults, so they don't need to be required
 }
 
 // ReferenceStatsBackend defines the interface for any backend that can provide reference stats.
@@ -35,10 +38,19 @@ type StatsRequest struct {
 	ModelID  string
 }
 
+// CacheEntry represents a cache entry for batch operations.
+type CacheEntry struct {
+	Request StatsRequest
+	Stats   *reference_stats.ReferenceStats
+}
+
 // Cache defines the interface for storing and retrieving reference statistics.
 type Cache interface {
 	Get(ctx context.Context, req StatsRequest) (*reference_stats.ReferenceStats, error)
 	Store(ctx context.Context, req StatsRequest, stats *reference_stats.ReferenceStats) error
+	// Batch operations
+	GetBatch(ctx context.Context, reqs []StatsRequest) (map[string]*reference_stats.ReferenceStats, error)
+	StoreBatch(ctx context.Context, entries []CacheEntry) error
 }
 
 // RepositoryCache implements both Cache and ReferenceStatsBackend using DBRepository.
@@ -125,6 +137,61 @@ func (c *RepositoryCache) Get(ctx context.Context, req StatsRequest) (*reference
 	return stats, nil
 }
 
+// GetBatch retrieves multiple reference statistics from the repository in a single query.
+func (c *RepositoryCache) GetBatch(ctx context.Context, reqs []StatsRequest) (map[string]*reference_stats.ReferenceStats, error) {
+	if len(reqs) == 0 {
+		return make(map[string]*reference_stats.ReferenceStats), nil
+	}
+
+	// Build batch query with OR clause for optimal performance
+	var conditions []string
+	var args []interface{}
+
+	for _, req := range reqs {
+		conditions = append(conditions, "(ancestry = ? AND trait = ? AND model = ?)")
+		args = append(args, req.Ancestry, req.Trait, req.ModelID)
+	}
+
+	queryString := fmt.Sprintf(
+		"SELECT mean, std, min, max, ancestry, trait, model FROM %s WHERE %s",
+		c.TableID,
+		strings.Join(conditions, " OR "),
+	)
+
+	logging.Debug("Executing batch cache query for %d requests", len(reqs))
+
+	results, err := c.Repo.Query(ctx, queryString, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute batch cache query: %w", err)
+	}
+
+	// Convert results to map keyed by "ancestry|trait|model"
+	statsMap := make(map[string]*reference_stats.ReferenceStats)
+	for _, row := range results {
+		stats := &reference_stats.ReferenceStats{
+			Mean:     row["mean"].(float64),
+			Std:      row["std"].(float64),
+			Min:      row["min"].(float64),
+			Max:      row["max"].(float64),
+			Ancestry: row["ancestry"].(string),
+			Trait:    row["trait"].(string),
+			Model:    row["model"].(string),
+		}
+
+		// Validate the stats before adding to map
+		if err := stats.Validate(); err != nil {
+			logging.Warn("Invalid reference stats from batch cache query: %v", err)
+			continue
+		}
+
+		key := fmt.Sprintf("%s|%s|%s", stats.Ancestry, stats.Trait, stats.Model)
+		statsMap[key] = stats
+	}
+
+	logging.Debug("Retrieved %d stats from batch cache query", len(statsMap))
+	return statsMap, nil
+}
+
 // Store saves reference statistics to the repository.
 func (c *RepositoryCache) Store(ctx context.Context, req StatsRequest, stats *reference_stats.ReferenceStats) error {
 	// Validate stats before storing
@@ -147,5 +214,68 @@ func (c *RepositoryCache) Store(ctx context.Context, req StatsRequest, stats *re
 	}
 
 	logging.Debug("Stored stats in cache for ancestry=%s, trait=%s, model=%s", req.Ancestry, req.Trait, req.ModelID)
+	return nil
+}
+
+// StoreBatch stores multiple reference statistics to the repository in a single operation.
+func (c *RepositoryCache) StoreBatch(ctx context.Context, entries []CacheEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	// Get batch size from config (default to 100 if not set)
+	batchSize := config.GetInt(CacheBatchSizeKey)
+	if batchSize <= 0 {
+		batchSize = 100 // Default batch size
+	}
+
+	// Process entries in batches for optimal BigQuery performance
+	for i := 0; i < len(entries); i += batchSize {
+		end := i + batchSize
+		if end > len(entries) {
+			end = len(entries)
+		}
+
+		batch := entries[i:end]
+		if err := c.storeBatch(ctx, batch); err != nil {
+			return fmt.Errorf("failed to store batch %d-%d: %w", i, end-1, err)
+		}
+	}
+
+	return nil
+}
+
+// storeBatch performs the actual batch storage operation.
+func (c *RepositoryCache) storeBatch(ctx context.Context, entries []CacheEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	// Prepare rows for batch insert
+	rows := make([]map[string]interface{}, 0, len(entries))
+	for _, entry := range entries {
+		// Validate stats before storing
+		if err := entry.Stats.Validate(); err != nil {
+			return fmt.Errorf("invalid reference stats for batch storage: %w", err)
+		}
+
+		row := map[string]interface{}{
+			"mean":     entry.Stats.Mean,
+			"std":      entry.Stats.Std,
+			"min":      entry.Stats.Min,
+			"max":      entry.Stats.Max,
+			"ancestry": entry.Request.Ancestry,
+			"trait":    entry.Request.Trait,
+			"model":    entry.Request.ModelID,
+		}
+		rows = append(rows, row)
+	}
+
+	// Execute batch insert
+	if err := c.Repo.Insert(ctx, c.TableID, rows); err != nil {
+		return fmt.Errorf("failed to execute batch insert: %w", err)
+	}
+
+	logging.Debug("Stored %d stats in batch cache operation", len(entries))
 	return nil
 }

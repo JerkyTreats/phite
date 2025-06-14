@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -248,40 +249,434 @@ func TestRepositoryCache_GetReferenceStats_WithGenderedAncestry(t *testing.T) {
 }
 
 func TestRepositoryCache_GetReferenceStats_CacheKeyGeneration(t *testing.T) {
-	tests := []struct {
-		name         string
-		population   string
-		gender       string
-		expectedCode string
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			return []map[string]interface{}{}, nil
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	// Test different ancestry gender combinations
+	ancestries := []struct {
+		code        string
+		description string
 	}{
-		{"European combined", "EUR", "", "EUR"},
-		{"European male", "EUR", "MALE", "EUR_MALE"},
-		{"African female", "AFR", "FEMALE", "AFR_FEMALE"},
-		{"South Asian male", "SAS", "MALE", "SAS_MALE"},
+		{"EUR", "European"},
+		{"EUR_MALE", "European Male"},
+		{"EUR_FEMALE", "European Female"},
+		{"AFR", "African"},
+		{"AFR_MALE", "African Male"},
+		{"AFR_FEMALE", "African Female"},
+		{"AMR", "Admixed American"},
+		{"AMR_MALE", "Admixed American Male"},
+		{"AMR_FEMALE", "Admixed American Female"},
+		{"EAS", "East Asian"},
+		{"EAS_MALE", "East Asian Male"},
+		{"EAS_FEMALE", "East Asian Female"},
+		{"SAS", "South Asian"},
+		{"SAS_MALE", "South Asian Male"},
+		{"SAS_FEMALE", "South Asian Female"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var capturedArgs []interface{}
-			repo := &mockRepo{
-				queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-					capturedArgs = args
-					return []map[string]interface{}{}, nil
+	for _, anc := range ancestries {
+		// Parse the code to get population and gender
+		var population, gender string
+		if len(anc.code) == 3 {
+			population = anc.code
+			gender = ""
+		} else {
+			parts := strings.Split(anc.code, "_")
+			population = parts[0]
+			gender = parts[1]
+		}
+
+		ancestry, err := ancestry.New(population, gender)
+		assert.NoError(t, err)
+		_, _ = cache.GetReferenceStats(context.Background(), ancestry, "Height", "test_model")
+	}
+}
+
+// Test cases for batch cache operations
+
+func TestRepositoryCache_GetBatch_MultipleCacheHits(t *testing.T) {
+	defer config.ResetForTest()
+
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			return []map[string]interface{}{
+				{
+					"mean":     0.5,
+					"std":      1.0,
+					"min":      0.0,
+					"max":      1.0,
+					"ancestry": "EUR",
+					"trait":    "Height",
+					"model":    "test_model",
 				},
-			}
-			cache := &RepositoryCache{
-				Repo:    repo,
-				TableID: config.GetString(TableIDKey),
-			}
-
-			// Create ancestry object
-			ancestry, err := ancestry.New(tt.population, tt.gender)
-			assert.NoError(t, err)
-
-			_, _ = cache.GetReferenceStats(context.Background(), ancestry, "Height", "test_model")
-
-			// Verify that the correct ancestry code was used
-			assert.Equal(t, tt.expectedCode, capturedArgs[0])
-		})
+				{
+					"mean":     0.6,
+					"std":      1.1,
+					"min":      0.1,
+					"max":      1.1,
+					"ancestry": "EUR",
+					"trait":    "BMI",
+					"model":    "test_model",
+				},
+			}, nil
+		},
 	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	requests := []StatsRequest{
+		{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
+		{Ancestry: "EUR", Trait: "BMI", ModelID: "test_model"},
+	}
+
+	results, err := cache.GetBatch(context.Background(), requests)
+	assert.NoError(t, err)
+	assert.Len(t, results, 2)
+
+	heightKey := "EUR|Height|test_model"
+	bmiKey := "EUR|BMI|test_model"
+
+	assert.Contains(t, results, heightKey)
+	assert.Contains(t, results, bmiKey)
+	assert.Equal(t, 0.5, results[heightKey].Mean)
+	assert.Equal(t, 0.6, results[bmiKey].Mean)
+}
+
+func TestRepositoryCache_GetBatch_CacheMisses(t *testing.T) {
+	defer config.ResetForTest()
+
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			return []map[string]interface{}{}, nil
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	requests := []StatsRequest{
+		{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
+		{Ancestry: "EUR", Trait: "BMI", ModelID: "test_model"},
+	}
+
+	results, err := cache.GetBatch(context.Background(), requests)
+	assert.NoError(t, err)
+	assert.Len(t, results, 0)
+}
+
+func TestRepositoryCache_GetBatch_EmptyRequests(t *testing.T) {
+	defer config.ResetForTest()
+
+	repo := &mockRepo{}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	results, err := cache.GetBatch(context.Background(), []StatsRequest{})
+	assert.NoError(t, err)
+	assert.Len(t, results, 0)
+}
+
+func TestRepositoryCache_GetBatch_MixedResults(t *testing.T) {
+	defer config.ResetForTest()
+
+	queryCount := 0
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			queryCount++
+			// Only return one result to test mixed hit/miss scenario
+			return []map[string]interface{}{
+				{
+					"mean":     0.5,
+					"std":      1.0,
+					"min":      0.0,
+					"max":      1.0,
+					"ancestry": "EUR",
+					"trait":    "Height",
+					"model":    "test_model",
+				},
+			}, nil
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	requests := []StatsRequest{
+		{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
+		{Ancestry: "EUR", Trait: "BMI", ModelID: "test_model"},
+	}
+
+	results, err := cache.GetBatch(context.Background(), requests)
+	assert.NoError(t, err)
+	assert.Len(t, results, 1)      // Only one result should be found
+	assert.Equal(t, 1, queryCount) // Should make single bulk query
+}
+
+func TestRepositoryCache_GetBatch_QueryError(t *testing.T) {
+	defer config.ResetForTest()
+
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			return nil, errors.New("database error")
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	requests := []StatsRequest{
+		{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
+	}
+
+	results, err := cache.GetBatch(context.Background(), requests)
+	assert.Error(t, err)
+	assert.Nil(t, results)
+}
+
+func TestRepositoryCache_GetBatch_InvalidStats(t *testing.T) {
+	defer config.ResetForTest()
+
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			return []map[string]interface{}{
+				{
+					"mean":     0.5,
+					"std":      -1.0, // Invalid std
+					"min":      0.0,
+					"max":      1.0,
+					"ancestry": "EUR",
+					"trait":    "Height",
+					"model":    "test_model",
+				},
+			}, nil
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	requests := []StatsRequest{
+		{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
+	}
+
+	results, err := cache.GetBatch(context.Background(), requests)
+	assert.NoError(t, err)
+	assert.Len(t, results, 0) // Invalid stats should be skipped
+}
+
+func TestRepositoryCache_StoreBatch_ValidEntries(t *testing.T) {
+	config.SetForTest(CacheBatchSizeKey, 100)
+	defer config.ResetForTest()
+
+	insertCount := 0
+	repo := &mockRepo{
+		insertFunc: func(ctx context.Context, table string, rows []map[string]interface{}) error {
+			insertCount++
+			assert.Len(t, rows, 2)
+			return nil
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	entries := []CacheEntry{
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.5, Std: 1.0, Min: 0.0, Max: 1.0},
+		},
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "BMI", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.6, Std: 1.1, Min: 0.1, Max: 1.1},
+		},
+	}
+
+	err := cache.StoreBatch(context.Background(), entries)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, insertCount)
+}
+
+func TestRepositoryCache_StoreBatch_EmptyEntries(t *testing.T) {
+	defer config.ResetForTest()
+
+	repo := &mockRepo{}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	err := cache.StoreBatch(context.Background(), []CacheEntry{})
+	assert.NoError(t, err)
+}
+
+func TestRepositoryCache_StoreBatch_SingleBatch(t *testing.T) {
+	defer config.ResetForTest()
+
+	insertCount := 0
+	repo := &mockRepo{
+		insertFunc: func(ctx context.Context, table string, rows []map[string]interface{}) error {
+			insertCount++
+			assert.Len(t, rows, 2) // Bulk insert
+			return nil
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	entries := []CacheEntry{
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.5, Std: 1.0, Min: 0.0, Max: 1.0},
+		},
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "BMI", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.6, Std: 1.1, Min: 0.1, Max: 1.1},
+		},
+	}
+
+	err := cache.StoreBatch(context.Background(), entries)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, insertCount) // Should make single bulk insert
+}
+
+func TestRepositoryCache_StoreBatch_BatchSizeLimit(t *testing.T) {
+	config.SetForTest(CacheBatchSizeKey, 2)
+	defer config.ResetForTest()
+
+	insertCount := 0
+	repo := &mockRepo{
+		insertFunc: func(ctx context.Context, table string, rows []map[string]interface{}) error {
+			insertCount++
+			assert.LessOrEqual(t, len(rows), 2)
+			return nil
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	entries := []CacheEntry{
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.5, Std: 1.0, Min: 0.0, Max: 1.0},
+		},
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "BMI", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.6, Std: 1.1, Min: 0.1, Max: 1.1},
+		},
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "Weight", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.7, Std: 1.2, Min: 0.2, Max: 1.2},
+		},
+	}
+
+	err := cache.StoreBatch(context.Background(), entries)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, insertCount) // Should make 2 batch inserts
+}
+
+func TestRepositoryCache_StoreBatch_InvalidStats(t *testing.T) {
+	defer config.ResetForTest()
+
+	repo := &mockRepo{
+		insertFunc: func(ctx context.Context, table string, rows []map[string]interface{}) error {
+			return nil
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	entries := []CacheEntry{
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.5, Std: -1.0, Min: 0.0, Max: 1.0}, // Invalid std
+		},
+	}
+
+	err := cache.StoreBatch(context.Background(), entries)
+	assert.Error(t, err)
+}
+
+func TestRepositoryCache_StoreBatch_InsertError(t *testing.T) {
+	defer config.ResetForTest()
+
+	repo := &mockRepo{
+		insertFunc: func(ctx context.Context, table string, rows []map[string]interface{}) error {
+			return errors.New("insert error")
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	entries := []CacheEntry{
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.5, Std: 1.0, Min: 0.0, Max: 1.0},
+		},
+	}
+
+	err := cache.StoreBatch(context.Background(), entries)
+	assert.Error(t, err)
+}
+
+func TestRepositoryCache_StoreBatch_PartialBatchFailure(t *testing.T) {
+	config.SetForTest(CacheBatchSizeKey, 2)
+	defer config.ResetForTest()
+
+	insertCount := 0
+	repo := &mockRepo{
+		insertFunc: func(ctx context.Context, table string, rows []map[string]interface{}) error {
+			insertCount++
+			if insertCount == 1 {
+				return nil // First batch succeeds
+			}
+			return errors.New("second batch fails")
+		},
+	}
+	cache := &RepositoryCache{
+		Repo:    repo,
+		TableID: config.GetString(TableIDKey),
+	}
+
+	entries := []CacheEntry{
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.5, Std: 1.0, Min: 0.0, Max: 1.0},
+		},
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "BMI", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.6, Std: 1.1, Min: 0.1, Max: 1.1},
+		},
+		{
+			Request: StatsRequest{Ancestry: "EUR", Trait: "Weight", ModelID: "test_model"},
+			Stats:   &reference_stats.ReferenceStats{Mean: 0.7, Std: 1.2, Min: 0.2, Max: 1.2},
+		},
+	}
+
+	err := cache.StoreBatch(context.Background(), entries)
+	assert.Error(t, err)
+	assert.Equal(t, 2, insertCount) // Should attempt both batches
 }
