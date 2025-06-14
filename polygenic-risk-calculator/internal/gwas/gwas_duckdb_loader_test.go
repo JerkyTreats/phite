@@ -5,14 +5,27 @@ import (
 	"os"
 	"testing"
 
+	"phite.io/polygenic-risk-calculator/internal/config"
 	"phite.io/polygenic-risk-calculator/internal/db"
 	"phite.io/polygenic-risk-calculator/internal/gwas"
 	"phite.io/polygenic-risk-calculator/internal/logging"
 )
 
+func setupGWASTestConfig(t *testing.T) {
+	// Set up test configuration with required GWAS database path
+	config.SetForTest("gwas_db_path", "testdata/gwas.duckdb")
+	config.SetForTest("gwas_table", "associations_clean")
+}
+
 func TestFetchGWASRecords(t *testing.T) {
 	logging.SetSilentLoggingForTest()
+	setupGWASTestConfig(t)
+
 	service := gwas.NewGWASService()
+	if service == nil {
+		t.Fatal("failed to create GWAS service - check that testdata/gwas.duckdb exists")
+	}
+
 	ctx := context.Background()
 
 	t.Run("fetches known rsids", func(t *testing.T) {

@@ -15,8 +15,8 @@ func TestResolveSNPs(t *testing.T) {
 		t.Errorf("deduplication failed: %v", out)
 	}
 
-	// file input (create temp file)
-	f, err := os.CreateTemp("", "snps_test_*.txt")
+	// file input (create temp file with supported .csv extension)
+	f, err := os.CreateTemp("", "snps_test_*.csv")
 	if err != nil {
 		t.Fatal(err)
 	}
