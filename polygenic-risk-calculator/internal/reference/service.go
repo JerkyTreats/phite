@@ -13,7 +13,7 @@ import (
 	reference_stats "phite.io/polygenic-risk-calculator/internal/reference/stats"
 	"phite.io/polygenic-risk-calculator/internal/utils"
 
-	model "phite.io/polygenic-risk-calculator/internal/reference/model"
+	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
 func init() {
@@ -22,6 +22,13 @@ func init() {
 	config.RegisterRequiredKey("reference.allele_freq_table")
 	config.RegisterRequiredKey("reference.column_mapping")
 	config.RegisterRequiredKey("reference.ancestry_mapping")
+
+	// User GCP configuration for billing
+	config.RegisterRequiredKey("user.gcp_project") // For billing project
+
+	// Cache configuration for user's private BigQuery dataset
+	config.RegisterRequiredKey("cache.gcp_project") // Cache storage project
+	config.RegisterRequiredKey("cache.dataset")     // Cache dataset name
 }
 
 // ReferenceService handles loading PRS models and allele frequencies using the repository pattern
@@ -36,14 +43,26 @@ type ReferenceService struct {
 
 // NewReferenceService creates a new reference service
 func NewReferenceService() *ReferenceService {
-	gnomadDB, err := db.GetRepository(context.Background(), "bq")
+	// gnomAD public data repository (read-only)
+	gnomadDB, err := db.GetRepository(context.Background(), "bq", map[string]string{
+		"project_id":      "bigquery-public-data",
+		"dataset_id":      "gnomad",
+		"billing_project": config.GetString("user.gcp_project"),
+	})
 	if err != nil {
-		logging.Error("Failed to create ReferenceService: %v", err)
+		logging.Error("Failed to create gnomAD repository: %v", err)
 		return nil
 	}
-	referenceCache, err := reference_cache.NewRepositoryCache()
+
+	// Cache repository (read-write to user's project)
+	cacheParams := map[string]string{
+		"project_id":      config.GetString("cache.gcp_project"),
+		"dataset_id":      config.GetString("cache.dataset"),
+		"billing_project": config.GetString("user.gcp_project"),
+	}
+	referenceCache, err := reference_cache.NewRepositoryCache(cacheParams)
 	if err != nil {
-		logging.Error("Failed to create ReferenceService: %v", err)
+		logging.Error("Failed to create cache repository: %v", err)
 		return nil
 	}
 

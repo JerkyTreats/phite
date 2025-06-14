@@ -3,18 +3,13 @@ package reference_stats
 import (
 	"fmt"
 	"math"
+
+	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
-// ReferenceStats represents computed PRS statistics for a specific ancestry, trait, and model.
-type ReferenceStats struct {
-	Mean     float64
-	Std      float64
-	Min      float64
-	Max      float64
-	Ancestry string
-	Trait    string
-	Model    string
-}
+// ReferenceStats wraps model.ReferenceStats and provides domain-specific helpers.
+// It has identical underlying structure, enabling direct field access.
+type ReferenceStats model.ReferenceStats
 
 // Validate checks if the statistics are valid.
 func (s *ReferenceStats) Validate() error {
@@ -30,18 +25,13 @@ func (s *ReferenceStats) Validate() error {
 	return nil
 }
 
-// NormalizePRS converts a raw PRS score to a normalized score using these reference statistics.
+// NormalizePRS converts a raw PRS score to a normalized percentile.
 func (s *ReferenceStats) NormalizePRS(rawPRS float64) (float64, error) {
 	if err := s.Validate(); err != nil {
 		return 0, fmt.Errorf("invalid reference stats: %w", err)
 	}
-
-	// Z-score normalization
 	zScore := (rawPRS - s.Mean) / s.Std
-
-	// Convert to percentile (assuming normal distribution)
 	percentile := 0.5 * (1 + math.Erf(zScore/math.Sqrt(2)))
-
 	return percentile, nil
 }
 

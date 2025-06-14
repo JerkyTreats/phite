@@ -11,8 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"phite.io/polygenic-risk-calculator/internal/config"
 	reference_cache "phite.io/polygenic-risk-calculator/internal/reference/cache"
-	model "phite.io/polygenic-risk-calculator/internal/reference/model"
 	reference_stats "phite.io/polygenic-risk-calculator/internal/reference/stats"
+
+	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
 type mockRepo struct {

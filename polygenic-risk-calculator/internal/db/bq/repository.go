@@ -17,17 +17,49 @@ func init() {
 }
 
 type Repository struct {
-	bqclient *bigqueryclient.BQClient
+	bqclient  *bigqueryclient.BQClient
+	projectID string
+	datasetID string
 }
 
-// NewRepository creates a new BigQuery repository
-func NewRepository() (dbinterface.Repository, error) {
-	bqclient, err := bigqueryclient.NewClient(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create BigQuery client: %w", err)
+// NewRepository creates a new BigQuery repository with required parameters
+func NewRepository(projectID, datasetID, billingProject string) (dbinterface.Repository, error) {
+	// Validate required parameters
+	if projectID == "" {
+		return nil, fmt.Errorf("project ID cannot be empty")
 	}
+	if datasetID == "" {
+		return nil, fmt.Errorf("dataset ID cannot be empty")
+	}
+
+	var client *bigquery.Client
+	var err error
+
+	// Use billing project if specified, otherwise use data project
+	if billingProject == "" {
+		billingProject = projectID
+	}
+
+	// Create client using Application Default Credentials (ADC)
+	// This will use gcloud auth login credentials or environment-based auth
+	logging.Info("Creating BigQuery client with default credentials for billing project: %s", billingProject)
+	client, err = bigquery.NewClient(context.Background(), billingProject)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create BigQuery client for billing project %s: %w", billingProject, err)
+	}
+
+	// Create a minimal BQClient wrapper
+	bqclient := &bigqueryclient.BQClient{
+		ProjectID: projectID,
+		Dataset:   datasetID,
+		Client:    client,
+	}
+
 	return &Repository{
-		bqclient: bqclient,
+		bqclient:  bqclient,
+		projectID: projectID,
+		datasetID: datasetID,
 	}, nil
 }
 
@@ -72,7 +104,10 @@ func (r *Repository) Insert(ctx context.Context, table string, rows []map[string
 	logging.Debug("Inserting %d rows into table %s", len(rows), table)
 
 	// Get dataset and table references
-	datasetID := config.GetString("bigquery.dataset_id")
+	datasetID := r.datasetID
+	if datasetID == "" {
+		datasetID = config.GetString("bigquery.dataset_id")
+	}
 	tableRef := r.bqclient.Client.Dataset(datasetID).Table(table)
 	inserter := tableRef.Inserter()
 
@@ -104,7 +139,10 @@ func (r *Repository) ValidateTable(ctx context.Context, table string, requiredCo
 	logging.Info("Validating table %q for required columns", table)
 
 	// Get dataset and table references
-	datasetID := config.GetString("bigquery.dataset_id")
+	datasetID := r.datasetID
+	if datasetID == "" {
+		datasetID = config.GetString("bigquery.dataset_id")
+	}
 	tableRef := r.bqclient.Client.Dataset(datasetID).Table(table)
 
 	// Check if table exists

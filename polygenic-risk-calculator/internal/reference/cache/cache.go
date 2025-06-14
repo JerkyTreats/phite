@@ -47,8 +47,19 @@ type RepositoryCache struct {
 }
 
 // NewRepositoryCache creates a new cache using DBRepository.
-func NewRepositoryCache() (*RepositoryCache, error) {
-	repo, err := db.GetRepository(context.Background(), "bq")
+// params is optional - if provided, will be passed to the repository constructor
+func NewRepositoryCache(params ...map[string]string) (*RepositoryCache, error) {
+	var repo dbinterface.Repository
+	var err error
+
+	if len(params) > 0 && params[0] != nil {
+		// Use provided parameters
+		repo, err = db.GetRepository(context.Background(), "bq", params[0])
+	} else {
+		// Use default configuration
+		repo, err = db.GetRepository(context.Background(), "bq")
+	}
+
 	if err != nil {
 		logging.Error("Failed to create RepositoryCache: %v", err)
 		return nil, fmt.Errorf("failed to create RepositoryCache: %w", err)

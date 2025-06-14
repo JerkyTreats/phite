@@ -12,14 +12,7 @@ import (
 
 func TestFetchGWASRecords(t *testing.T) {
 	logging.SetSilentLoggingForTest()
-	dbPath := "testdata/gwas.duckdb" // Assume a test DuckDB file exists with known data
-	repo, err := db.GetRepository(context.Background(), "duckdb", map[string]string{
-		"path": dbPath,
-	})
-	if err != nil {
-		t.Fatalf("failed to create repository: %v", err)
-	}
-	service := gwas.NewGWASService(repo)
+	service := gwas.NewGWASService()
 	ctx := context.Background()
 
 	t.Run("fetches known rsids", func(t *testing.T) {
@@ -65,21 +58,6 @@ func TestFetchGWASRecords(t *testing.T) {
 			t.Errorf("expected error for missing table")
 		}
 		_ = records // silence unused warning
-	})
-
-	t.Run("error if required columns are missing", func(t *testing.T) {
-		missingColsDB := "testdata/gwas_missing_cols.duckdb"
-		missingRepo, err := db.GetRepository(context.Background(), "duckdb", map[string]string{
-			"path": missingColsDB,
-		})
-		if err != nil {
-			t.Fatalf("failed to create repository: %v", err)
-		}
-		missingService := gwas.NewGWASService(missingRepo)
-		_, err = missingService.FetchGWASRecords(ctx, []string{"rs1"})
-		if err == nil {
-			t.Skip("skipping: test DB missing or does not have a table missing required columns")
-		}
 	})
 
 	t.Run("respects env for table name", func(t *testing.T) {

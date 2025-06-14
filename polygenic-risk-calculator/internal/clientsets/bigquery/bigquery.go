@@ -10,6 +10,8 @@ import (
 
 	"phite.io/polygenic-risk-calculator/internal/config"
 	"phite.io/polygenic-risk-calculator/internal/logging"
+
+	dbconfig "phite.io/polygenic-risk-calculator/internal/db/config"
 )
 
 // Client encapsulates config, connection, and query logic for reference stats in BigQuery.
@@ -28,6 +30,7 @@ type BQClient struct {
 	Table     string
 	CredsPath string
 	Client    *bigquery.Client
+	Config    *dbconfig.BigQueryConfig
 }
 
 // NewClient initializes a BigQuery client using config.go.
@@ -59,6 +62,35 @@ func NewClient(ctx context.Context) (*BQClient, error) {
 		Table:     table,
 		CredsPath: creds,
 		Client:    client,
+	}, nil
+}
+
+// NewClientWithConfig creates client with specific configuration
+func NewClientWithConfig(ctx context.Context, config *dbconfig.BigQueryConfig) (*BQClient, error) {
+	var client *bigquery.Client
+	var err error
+
+	billingProject := config.BillingProject
+	if billingProject == "" {
+		billingProject = config.ProjectID
+	}
+
+	if config.CredentialsPath != "" {
+		client, err = bigquery.NewClient(ctx, billingProject,
+			option.WithCredentialsFile(config.CredentialsPath))
+	} else {
+		client, err = bigquery.NewClient(ctx, billingProject)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to create BigQuery client: %w", err)
+	}
+
+	return &BQClient{
+		ProjectID: config.ProjectID,
+		Dataset:   config.DatasetID,
+		Client:    client,
+		Config:    config,
 	}, nil
 }
 
