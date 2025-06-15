@@ -38,16 +38,49 @@ type PipelineOutput struct {
 	SNPSMissing    []string
 }
 
+// PipelineRequirements holds all data requirements identified during analysis phase
+type PipelineRequirements struct {
+	TraitSet      map[string]struct{}
+	TraitModels   map[string]string          // trait -> modelID (same for all in our case)
+	AllVariants   map[string][]model.Variant // trait -> variants
+	CacheKeys     []reference_cache.StatsRequest
+	StatsRequests []reference.ReferenceStatsRequest
+	AncestryObj   *ancestry.Ancestry
+	ModelID       string
+}
+
+// BulkDataContext holds all data retrieved in bulk operations
+type BulkDataContext struct {
+	AlleleFrequencies map[string]map[string]float64              // trait -> variant -> freq
+	CachedStats       map[string]*reference_stats.ReferenceStats // cache hits
+	ComputedStats     map[string]*reference_stats.ReferenceStats // computed for cache misses
+	PRSModel          *model.PRSModel                            // loaded once
+	TraitSNPs         map[string][]model.AnnotatedSNP            // trait -> SNPs
+}
+
+// ProcessingResults holds all computed results before final output
+type ProcessingResults struct {
+	TraitSummaries []output.TraitSummary
+	NormalizedPRS  map[string]prs.NormalizedPRS
+	PRSResults     map[string]prs.PRSResult
+	CacheEntries   []reference_cache.CacheEntry // for bulk storage
+}
+
 // BulkOperationContext holds all cache operations that need to be executed in bulk.
 type BulkOperationContext struct {
 	CacheRequests []reference_cache.StatsRequest
 	CacheEntries  []reference_cache.CacheEntry
-	StatsRequests []reference.ReferenceStatsRequest // Added for batch reference stats computation
+	StatsRequests []reference.ReferenceStatsRequest
 }
 
-// Run executes the full polygenic risk pipeline using optimized bulk operations.
+// Run executes the fully optimized polygenic risk pipeline with maximum bulk operations.
+// This implementation uses a 4-phase approach to minimize BigQuery costs:
+// Phase 1: Requirements Analysis - Pre-analyze all data needs
+// Phase 2: Bulk Data Retrieval - Execute minimal BigQuery operations
+// Phase 3: In-Memory Processing - Process all traits using cached data
+// Phase 4: Bulk Storage - Store all results in single operation
 func Run(input PipelineInput) (PipelineOutput, error) {
-	logging.Info("Pipeline started with bulk operations: %+v", input)
+	logging.Info("Starting optimized pipeline with 4-phase bulk operations: %+v", input)
 
 	ctx := context.Background()
 	if input.GenotypeFile == "" || input.ReferenceTable == "" || len(input.SNPs) == 0 {
@@ -55,55 +88,95 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 		return PipelineOutput{}, errors.New("missing required input")
 	}
 
+	// ==================== PHASE 1: REQUIREMENTS ANALYSIS ====================
+	logging.Info("Phase 1: Analyzing all pipeline requirements...")
+	requirements, genoOut, annotated, err := analyzeAllRequirements(ctx, input)
+	if err != nil {
+		logging.Error("Phase 1 failed - Requirements analysis error: %v", err)
+		return PipelineOutput{}, fmt.Errorf("requirements analysis failed: %w", err)
+	}
+	logging.Info("Phase 1 complete: %d traits, %d cache requests, %d stats requests",
+		len(requirements.TraitSet), len(requirements.CacheKeys), len(requirements.StatsRequests))
+
+	// ==================== PHASE 2: BULK DATA RETRIEVAL ====================
+	logging.Info("Phase 2: Executing bulk data retrieval operations...")
+	bulkData, err := retrieveAllDataBulk(ctx, requirements, &annotated)
+	if err != nil {
+		logging.Error("Phase 2 failed - Bulk data retrieval error: %v", err)
+		return PipelineOutput{}, fmt.Errorf("bulk data retrieval failed: %w", err)
+	}
+	logging.Info("Phase 2 complete: Retrieved data for %d traits with %d cache hits, %d computed stats",
+		len(requirements.TraitSet), len(bulkData.CachedStats), len(bulkData.ComputedStats))
+
+	// ==================== PHASE 3: IN-MEMORY PROCESSING ====================
+	logging.Info("Phase 3: Processing all traits in-memory...")
+	results, err := processAllTraitsInMemory(requirements, bulkData)
+	if err != nil {
+		logging.Error("Phase 3 failed - In-memory processing error: %v", err)
+		return PipelineOutput{}, fmt.Errorf("in-memory processing failed: %w", err)
+	}
+	logging.Info("Phase 3 complete: Processed %d traits, generated %d summaries",
+		len(requirements.TraitSet), len(results.TraitSummaries))
+
+	// ==================== PHASE 4: BULK STORAGE ====================
+	logging.Info("Phase 4: Executing bulk storage operations...")
+	err = storeBulkResults(ctx, results)
+	if err != nil {
+		logging.Error("Phase 4 failed - Bulk storage error: %v", err)
+		return PipelineOutput{}, fmt.Errorf("bulk storage failed: %w", err)
+	}
+	logging.Info("Phase 4 complete: Stored %d cache entries", len(results.CacheEntries))
+
+	logging.Info("Optimized pipeline completed successfully. Total traits processed: %d", len(requirements.TraitSet))
+	return PipelineOutput{
+		TraitSummaries: results.TraitSummaries,
+		NormalizedPRS:  results.NormalizedPRS,
+		PRSResults:     results.PRSResults,
+		SNPSMissing:    genoOut.SNPsMissing,
+	}, nil
+}
+
+// analyzeAllRequirements performs comprehensive analysis of all pipeline data requirements
+func analyzeAllRequirements(ctx context.Context, input PipelineInput) (*PipelineRequirements, genotype.ParseGenotypeDataOutput, gwasdata.GWASDataFetcherOutput, error) {
 	// Initialize ancestry from configuration
 	ancestryObj, err := ancestry.NewFromConfig()
 	if err != nil {
-		logging.Error("Failed to initialize ancestry from configuration: %v", err)
-		return PipelineOutput{}, fmt.Errorf("failed to initialize ancestry: %w", err)
+		return nil, genotype.ParseGenotypeDataOutput{}, gwasdata.GWASDataFetcherOutput{}, fmt.Errorf("failed to initialize ancestry: %w", err)
 	}
-	logging.Info("Initialized ancestry: %s (%s)", ancestryObj.Code(), ancestryObj.Description())
 
+	// Fetch GWAS data
 	gwasService := gwas.NewGWASService()
 	if gwasService == nil {
-		logging.Error("Failed to initialize GWAS service")
-		return PipelineOutput{}, errors.New("failed to initialize GWAS service")
+		return nil, genotype.ParseGenotypeDataOutput{}, gwasdata.GWASDataFetcherOutput{}, errors.New("failed to initialize GWAS service")
 	}
 
 	gwasRecords, err := gwasService.FetchGWASRecords(ctx, input.SNPs)
 	if err != nil {
-		logging.Error("Failed to fetch GWAS records: %v", err)
-		return PipelineOutput{}, err
+		return nil, genotype.ParseGenotypeDataOutput{}, gwasdata.GWASDataFetcherOutput{}, fmt.Errorf("failed to fetch GWAS records: %w", err)
 	}
 
-	// Convert GWAS records to the expected format
 	gwasMap := make(map[string]model.GWASSNPRecord)
 	for _, record := range gwasRecords {
 		gwasMap[record.RSID] = record
 	}
 
-	gwasList := gwasdata.MapToGWASList(gwasMap)
-
-	logging.Info("Fetched %d GWAS records", len(gwasMap))
-	logging.Info("Using GWAS list with %d records", len(gwasList))
-	logging.Info("Parsing genotype data from file: %s", input.GenotypeFile)
-
+	// Parse genotype data
 	genoOut, err := genotype.ParseGenotypeData(genotype.ParseGenotypeDataInput{
 		GenotypeFilePath: input.GenotypeFile,
 		RequestedRSIDs:   input.SNPs,
 		GWASData:         gwasMap,
 	})
 	if err != nil {
-		logging.Error("Failed to parse genotype data: %v", err)
-		return PipelineOutput{}, err
+		return nil, genotype.ParseGenotypeDataOutput{}, gwasdata.GWASDataFetcherOutput{}, fmt.Errorf("failed to parse genotype data: %w", err)
 	}
 
-	logging.Info("Parsed genotype data: %d SNPs validated, %d SNPs missing", len(genoOut.ValidatedSNPs), len(genoOut.SNPsMissing))
-
+	// Annotate GWAS data
 	annotated := gwasdata.FetchAndAnnotateGWAS(gwasdata.GWASDataFetcherInput{
 		ValidatedSNPs:     genoOut.ValidatedSNPs,
 		AssociationsClean: gwasdata.MapToGWASList(gwasMap),
 	})
 
+	// Identify all traits
 	traitSet := make(map[string]struct{})
 	for _, snp := range annotated.AnnotatedSNPs {
 		if snp.Trait != "" {
@@ -111,142 +184,170 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 		}
 	}
 
-	logging.Info("Processing %d traits with bulk operations", len(traitSet))
-
-	modelId := config.GetString("reference.model")
-	refService := reference.NewReferenceService()
-
-	// Create cache instance for batch operations
-	cache, err := reference_cache.NewRepositoryCache()
-	if err != nil {
-		logging.Error("Failed to create cache for bulk operations: %v", err)
-		return PipelineOutput{}, fmt.Errorf("failed to create cache: %w", err)
-	}
-
-	// Phase 1: Pre-collect all cache requirements
-	bulkCtx := &BulkOperationContext{
-		CacheRequests: make([]reference_cache.StatsRequest, 0, len(traitSet)),
-		CacheEntries:  make([]reference_cache.CacheEntry, 0),
-	}
-
+	modelID := config.GetString("reference.model")
 	ancestryCode := ancestryObj.Code()
+
+	// Build cache requests for all traits
+	cacheKeys := make([]reference_cache.StatsRequest, 0, len(traitSet))
 	for trait := range traitSet {
-		bulkCtx.CacheRequests = append(bulkCtx.CacheRequests, reference_cache.StatsRequest{
+		cacheKeys = append(cacheKeys, reference_cache.StatsRequest{
 			Ancestry: ancestryCode,
 			Trait:    trait,
-			ModelID:  modelId,
+			ModelID:  modelID,
 		})
 	}
 
-	// Phase 2: Bulk cache lookup
-	logging.Info("Executing bulk cache lookup for %d traits", len(bulkCtx.CacheRequests))
-	cacheResults, err := cache.GetBatch(ctx, bulkCtx.CacheRequests)
-	if err != nil {
-		logging.Error("Failed to execute bulk cache lookup: %v", err)
-		return PipelineOutput{}, fmt.Errorf("failed to execute bulk cache lookup: %w", err)
+	requirements := &PipelineRequirements{
+		TraitSet:    traitSet,
+		TraitModels: make(map[string]string),
+		CacheKeys:   cacheKeys,
+		AncestryObj: ancestryObj,
+		ModelID:     modelID,
 	}
 
-	// Phase 3: Identify cache misses and compute stats with bulk operations
-	cacheMisses := make([]string, 0)
-	computedStats := make(map[string]*reference_stats.ReferenceStats)
-
+	// All traits use the same model in our current implementation
 	for trait := range traitSet {
-		key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, modelId)
+		requirements.TraitModels[trait] = modelID
+	}
+
+	return requirements, genoOut, annotated, nil
+}
+
+// retrieveAllDataBulk executes all required BigQuery operations in minimal bulk calls
+func retrieveAllDataBulk(ctx context.Context, requirements *PipelineRequirements, annotated *gwasdata.GWASDataFetcherOutput) (*BulkDataContext, error) {
+	refService := reference.NewReferenceService()
+
+	// Create cache instance
+	cache, err := reference_cache.NewRepositoryCache()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cache: %w", err)
+	}
+
+	// BULK OPERATION 1: Single bulk cache lookup for all traits
+	logging.Info("Executing bulk cache lookup for %d traits", len(requirements.CacheKeys))
+	cacheResults, err := cache.GetBatch(ctx, requirements.CacheKeys)
+	if err != nil {
+		return nil, fmt.Errorf("bulk cache lookup failed: %w", err)
+	}
+
+	// BULK OPERATION 2: Load PRS model once (shared across all traits)
+	logging.Info("Loading PRS model: %s", requirements.ModelID)
+	prsModel, err := refService.LoadModel(ctx, requirements.ModelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load PRS model: %w", err)
+	}
+
+	// Identify cache misses and prepare for bulk stats computation
+	cacheMisses := make([]string, 0)
+	ancestryCode := requirements.AncestryObj.Code()
+
+	for trait := range requirements.TraitSet {
+		key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, requirements.ModelID)
 		if _, found := cacheResults[key]; !found {
 			cacheMisses = append(cacheMisses, trait)
 		}
 	}
 
-	if len(cacheMisses) > 0 {
-		logging.Info("Computing reference stats for %d cache misses using bulk operations", len(cacheMisses))
+	computedStats := make(map[string]*reference_stats.ReferenceStats)
 
-		// Build batch reference stats requests for all cache misses
+	if len(cacheMisses) > 0 {
+		// BULK OPERATION 3: Single bulk reference stats computation for all cache misses
+		logging.Info("Computing reference stats for %d cache misses", len(cacheMisses))
+
 		statsRequests := make([]reference.ReferenceStatsRequest, 0, len(cacheMisses))
 		for _, trait := range cacheMisses {
 			statsRequests = append(statsRequests, reference.ReferenceStatsRequest{
-				Ancestry: ancestryObj,
+				Ancestry: requirements.AncestryObj,
 				Trait:    trait,
-				ModelID:  modelId,
+				ModelID:  requirements.ModelID,
 			})
 		}
 
-		// Single bulk computation for all reference stats
-		logging.Info("Executing bulk reference stats computation for %d traits", len(cacheMisses))
 		bulkStats, err := refService.GetReferenceStatsBatch(ctx, statsRequests)
 		if err != nil {
-			logging.Error("Failed to compute bulk reference stats: %v", err)
-			return PipelineOutput{}, fmt.Errorf("failed to compute bulk reference stats: %w", err)
+			return nil, fmt.Errorf("bulk reference stats computation failed: %w", err)
 		}
 
-		// Process bulk results and cache them
+		// Process bulk stats results
 		for _, trait := range cacheMisses {
-			key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, modelId)
+			key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, requirements.ModelID)
 			if stats, found := bulkStats[key]; found {
 				computedStats[trait] = stats
-
-				// Cache the result
-				if err := cache.Store(ctx, reference_cache.StatsRequest{
-					Ancestry: ancestryCode,
-					Trait:    trait,
-					ModelID:  modelId,
-				}, stats); err != nil {
-					logging.Warn("Failed to cache computed stats for trait %s: %v", trait, err)
-					// Don't return error, as we still have valid stats
-				}
-
-				// Add to bulk cache entries for consistency tracking
-				bulkCtx.CacheEntries = append(bulkCtx.CacheEntries, reference_cache.CacheEntry{
-					Request: reference_cache.StatsRequest{
-						Ancestry: ancestryCode,
-						Trait:    trait,
-						ModelID:  modelId,
-					},
-					Stats: stats,
-				})
 			} else {
-				logging.Error("No reference stats computed for trait %s", trait)
-				return PipelineOutput{}, fmt.Errorf("no reference stats computed for trait %s", trait)
+				return nil, fmt.Errorf("no reference stats computed for trait %s", trait)
 			}
 		}
-
-		logging.Info("Successfully computed and cached reference stats for %d cache misses using bulk operations", len(cacheMisses))
 	}
 
-	// Phase 4: Process traits using cached and computed data
-	normPRSs := make(map[string]prs.NormalizedPRS)
-	prsResults := make(map[string]prs.PRSResult)
-	summaries := make([]output.TraitSummary, 0, len(traitSet))
+	// Organize trait SNPs for processing
+	traitSNPs := make(map[string][]model.AnnotatedSNP)
+	for trait := range requirements.TraitSet {
+		traitSNPs[trait] = make([]model.AnnotatedSNP, 0)
+	}
 
-	for trait := range traitSet {
-		logging.Info("Processing trait: %s", trait)
-		traitSNPs := make([]model.AnnotatedSNP, 0)
-		for _, snp := range annotated.AnnotatedSNPs {
-			if snp.Trait == trait {
-				traitSNPs = append(traitSNPs, snp)
+	for _, snp := range annotated.AnnotatedSNPs {
+		if snp.Trait != "" {
+			if _, exists := traitSNPs[snp.Trait]; exists {
+				traitSNPs[snp.Trait] = append(traitSNPs[snp.Trait], snp)
 			}
 		}
+	}
 
-		// Calculate PRS
-		logging.Info("Calculating PRS for trait: %s", trait)
+	return &BulkDataContext{
+		CachedStats:   cacheResults,
+		ComputedStats: computedStats,
+		PRSModel:      prsModel,
+		TraitSNPs:     traitSNPs,
+	}, nil
+}
+
+// processAllTraitsInMemory processes all traits using pre-loaded bulk data
+func processAllTraitsInMemory(requirements *PipelineRequirements, bulkData *BulkDataContext) (*ProcessingResults, error) {
+	normPRSs := make(map[string]prs.NormalizedPRS)
+	prsResults := make(map[string]prs.PRSResult)
+	summaries := make([]output.TraitSummary, 0, len(requirements.TraitSet))
+	cacheEntries := make([]reference_cache.CacheEntry, 0)
+
+	ancestryCode := requirements.AncestryObj.Code()
+
+	// Process each trait using pre-loaded data
+	for trait := range requirements.TraitSet {
+		logging.Info("Processing trait: %s", trait)
+
+		traitSNPs := bulkData.TraitSNPs[trait]
+		if len(traitSNPs) == 0 {
+			logging.Warn("No SNPs found for trait %s, skipping", trait)
+			continue
+		}
+
+		// Calculate PRS using pre-loaded data
 		prsResult := prs.CalculatePRS(traitSNPs)
 		prsResults[trait] = prsResult
 
 		// Get reference stats (from cache or computed)
 		var refStats *reference_stats.ReferenceStats
-		key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, modelId)
+		key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, requirements.ModelID)
 
-		if cachedStats, found := cacheResults[key]; found {
+		if cachedStats, found := bulkData.CachedStats[key]; found {
 			refStats = cachedStats
-		} else if computedStats[trait] != nil {
-			refStats = computedStats[trait]
+		} else if computedStats, found := bulkData.ComputedStats[trait]; found {
+			refStats = computedStats
+
+			// Prepare cache entry for bulk storage
+			cacheEntries = append(cacheEntries, reference_cache.CacheEntry{
+				Request: reference_cache.StatsRequest{
+					Ancestry: ancestryCode,
+					Trait:    trait,
+					ModelID:  requirements.ModelID,
+				},
+				Stats: refStats,
+			})
 		} else {
-			logging.Error("No reference stats available for trait %s", trait)
-			return PipelineOutput{}, fmt.Errorf("no reference stats available for trait %s", trait)
+			return nil, fmt.Errorf("no reference stats available for trait %s", trait)
 		}
 
-		// Normalize PRS
+		// Normalize PRS using pre-loaded reference stats
 		if refStats != nil {
-			logging.Info("Normalizing PRS for trait: %s", trait)
 			modelRef := model.ReferenceStats{
 				Mean:     refStats.Mean,
 				Std:      refStats.Std,
@@ -256,28 +357,45 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 				Trait:    refStats.Trait,
 				Model:    refStats.Model,
 			}
+
 			norm, err := prs.NormalizePRS(prsResult, modelRef)
 			if err != nil {
-				logging.Error("Failed to normalize PRS for trait %s: %v", trait, err)
-				return PipelineOutput{}, fmt.Errorf("failed to normalize PRS for trait %s: %w", trait, err)
+				return nil, fmt.Errorf("failed to normalize PRS for trait %s: %w", trait, err)
 			}
 			normPRSs[trait] = norm
 		}
 
 		// Generate trait summary
-		logging.Info("Generating trait summary for trait: %s", trait)
 		ts := output.GenerateTraitSummaries(traitSNPs, normPRSs[trait])
 		summaries = append(summaries, ts...)
 	}
 
-	// Phase 5: Bulk cache storage optimization will be implemented in future phases
-	// Currently GetReferenceStats already handles individual caching
-
-	logging.Info("Pipeline completed successfully with bulk operations. Traits processed: %d", len(traitSet))
-	return PipelineOutput{
+	return &ProcessingResults{
 		TraitSummaries: summaries,
 		NormalizedPRS:  normPRSs,
 		PRSResults:     prsResults,
-		SNPSMissing:    genoOut.SNPsMissing,
+		CacheEntries:   cacheEntries,
 	}, nil
+}
+
+// storeBulkResults executes all storage operations in bulk
+func storeBulkResults(ctx context.Context, results *ProcessingResults) error {
+	if len(results.CacheEntries) == 0 {
+		logging.Info("No cache entries to store")
+		return nil
+	}
+
+	// BULK OPERATION 4: Single bulk cache storage for all computed stats
+	cache, err := reference_cache.NewRepositoryCache()
+	if err != nil {
+		return fmt.Errorf("failed to create cache for bulk storage: %w", err)
+	}
+
+	logging.Info("Executing bulk cache storage for %d entries", len(results.CacheEntries))
+	err = cache.StoreBatch(ctx, results.CacheEntries)
+	if err != nil {
+		return fmt.Errorf("bulk cache storage failed: %w", err)
+	}
+
+	return nil
 }

@@ -225,12 +225,12 @@ Add bulk operation settings to config:
 | 3.6 | Write Stats Batch Tests | Unit tests for batch reference stats | `internal/reference/service_test.go` | DONE | Medium | 3h |
 | 3.7 | Validate Computation Accuracy | Ensure batch results match individual results | Test files | DONE | High | 2h |
 | **Phase 4: Pipeline Architecture Optimization** | | | | | | |
-| 4.1 | Design Optimized Pipeline Flow | Create batch-aware pipeline architecture | `internal/pipeline/pipeline.go` | TODO | High | 3h |
-| 4.2 | Implement Requirements Analysis | Pre-analyze all traits and data requirements | `internal/pipeline/pipeline.go` | TODO | High | 4h |
-| 4.3 | Add Bulk Data Retrieval Phase | Execute minimal BigQuery operations upfront | `internal/pipeline/pipeline.go` | TODO | High | 4h |
-| 4.4 | Implement In-Memory Processing | Process all traits using cached data | `internal/pipeline/pipeline.go` | TODO | High | 3h |
-| 4.5 | Add Bulk Storage Phase | Store all results in single bulk operation | `internal/pipeline/pipeline.go` | TODO | High | 2h |
-| 4.6 | Create Bulk Operation Context | Data structures for bulk operation management | `internal/pipeline/pipeline.go` | TODO | Medium | 2h |
+| 4.1 | Design Optimized Pipeline Flow | Create batch-aware pipeline architecture | `internal/pipeline/pipeline.go` | DONE | High | 3h |
+| 4.2 | Implement Requirements Analysis | Pre-analyze all traits and data requirements | `internal/pipeline/pipeline.go` | DONE | High | 4h |
+| 4.3 | Add Bulk Data Retrieval Phase | Execute minimal BigQuery operations upfront | `internal/pipeline/pipeline.go` | DONE | High | 4h |
+| 4.4 | Implement In-Memory Processing | Process all traits using cached data | `internal/pipeline/pipeline.go` | DONE | High | 3h |
+| 4.5 | Add Bulk Storage Phase | Store all results in single bulk operation | `internal/pipeline/pipeline.go` | DONE | High | 2h |
+| 4.6 | Create Bulk Operation Context | Data structures for bulk operation management | `internal/pipeline/pipeline.go` | DONE | Medium | 2h |
 | **Configuration & Infrastructure** | | | | | | |
 | C.1 | Add Bulk Config Schema | Define bulk operation configuration structure | Config files | TODO | Medium | 1h |
 | C.2 | Add Batch Size Settings | Configurable batch sizes for different operations | Config files | TODO | Medium | 1h |
