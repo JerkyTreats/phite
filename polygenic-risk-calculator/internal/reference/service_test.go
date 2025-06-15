@@ -380,3 +380,168 @@ func TestReferenceService_GetAlleleFrequenciesForTraits_DBError(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, results)
 }
+
+func TestReferenceService_GetReferenceStatsBatch_Success(t *testing.T) {
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			// Mock LoadModel response
+			if strings.Contains(query, "model_table") {
+				return []map[string]interface{}{
+					{"id": "1:1000:A:G", "effect_weight": 0.5, "effect_allele": "A", "other_allele": "G", "effect_freq": 0.1},
+					{"id": "2:2000:C:T", "effect_weight": 0.3, "effect_allele": "C", "other_allele": "T", "effect_freq": 0.2},
+				}, nil
+			}
+			// Mock GetAlleleFrequenciesForTraits response
+			return []map[string]interface{}{
+				{"chrom": "1", "pos": int64(1000), "ref": "A", "alt": "G", "AF_nfe": 0.2},
+				{"chrom": "2", "pos": int64(2000), "ref": "C", "alt": "T", "AF_nfe": 0.3},
+			}, nil
+		},
+	}
+	service := &ReferenceService{
+		gnomadDB:        repo,
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+	}
+
+	// Create ancestry object for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
+	// Test multi-trait batch computation
+	requests := []ReferenceStatsRequest{
+		{Ancestry: eur, Trait: "Height", ModelID: "test_model"},
+		{Ancestry: eur, Trait: "BMI", ModelID: "test_model"},
+	}
+
+	results, err := service.GetReferenceStatsBatch(context.Background(), requests)
+	assert.NoError(t, err)
+	assert.Len(t, results, 2)
+
+	// Verify results have proper keys
+	assert.Contains(t, results, "EUR|Height|test_model")
+	assert.Contains(t, results, "EUR|BMI|test_model")
+
+	// Verify stats structure
+	heightStats := results["EUR|Height|test_model"]
+	assert.NotNil(t, heightStats)
+	assert.Equal(t, "EUR", heightStats.Ancestry)
+	assert.Equal(t, "Height", heightStats.Trait)
+	assert.Equal(t, "test_model", heightStats.Model)
+}
+
+func TestReferenceService_GetReferenceStatsBatch_EmptyInput(t *testing.T) {
+	service := &ReferenceService{
+		gnomadDB:        &mockRepo{},
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+	}
+
+	results, err := service.GetReferenceStatsBatch(context.Background(), []ReferenceStatsRequest{})
+	assert.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestReferenceService_GetReferenceStatsBatch_DifferentModels(t *testing.T) {
+	service := &ReferenceService{
+		gnomadDB:        &mockRepo{},
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+	}
+
+	// Create ancestry object for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
+	// Test with different model IDs (should fail)
+	requests := []ReferenceStatsRequest{
+		{Ancestry: eur, Trait: "Height", ModelID: "model1"},
+		{Ancestry: eur, Trait: "BMI", ModelID: "model2"}, // Different model
+	}
+
+	results, err := service.GetReferenceStatsBatch(context.Background(), requests)
+	assert.Error(t, err)
+	assert.Nil(t, results)
+	assert.Contains(t, err.Error(), "all requests must use the same model ID")
+}
+
+func TestReferenceService_GetReferenceStatsBatch_MultipleAncestries(t *testing.T) {
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			// Mock LoadModel response
+			if strings.Contains(query, "model_table") {
+				return []map[string]interface{}{
+					{"id": "1:1000:A:G", "effect_weight": 0.5, "effect_allele": "A", "other_allele": "G", "effect_freq": 0.1},
+				}, nil
+			}
+			// Mock GetAlleleFrequenciesForTraits response
+			return []map[string]interface{}{
+				{"chrom": "1", "pos": int64(1000), "ref": "A", "alt": "G", "AF_nfe": 0.2, "AF_afr": 0.15},
+			}, nil
+		},
+	}
+	service := &ReferenceService{
+		gnomadDB:        repo,
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+	}
+
+	// Create ancestry objects for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+	afr, err := ancestry.New("AFR", "")
+	assert.NoError(t, err)
+
+	// Test with multiple ancestries
+	requests := []ReferenceStatsRequest{
+		{Ancestry: eur, Trait: "Height", ModelID: "test_model"},
+		{Ancestry: afr, Trait: "Height", ModelID: "test_model"},
+	}
+
+	results, err := service.GetReferenceStatsBatch(context.Background(), requests)
+	assert.NoError(t, err)
+	assert.Len(t, results, 2)
+
+	// Verify both ancestry results
+	assert.Contains(t, results, "EUR|Height|test_model")
+	assert.Contains(t, results, "AFR|Height|test_model")
+}
+
+func TestReferenceService_GetReferenceStatsBatch_ModelLoadError(t *testing.T) {
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			if strings.Contains(query, "model_table") {
+				return nil, errors.New("model load error")
+			}
+			return nil, nil
+		},
+	}
+	service := &ReferenceService{
+		gnomadDB:        repo,
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+	}
+
+	// Create ancestry object for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
+	requests := []ReferenceStatsRequest{
+		{Ancestry: eur, Trait: "Height", ModelID: "test_model"},
+	}
+
+	results, err := service.GetReferenceStatsBatch(context.Background(), requests)
+	assert.Error(t, err)
+	assert.Nil(t, results)
+	assert.Contains(t, err.Error(), "failed to load PRS model for batch computation")
+}

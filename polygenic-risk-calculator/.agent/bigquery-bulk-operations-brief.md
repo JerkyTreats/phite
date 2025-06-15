@@ -217,13 +217,13 @@ Add bulk operation settings to config:
 | 2.5 | Write Variant Batch Tests | Unit tests for cross-trait variant batching | `internal/reference/service_test.go` | DONE | Medium | 3h |
 | 2.6 | Ancestry Validation Testing | Test with multiple ancestry combinations | Test files | DONE | Medium | 2h |
 | **Phase 3: Reference Stats Batching** | | | | | | |
-| 3.1 | Design Batch Stats Interface | Add `GetReferenceStatsBatch()` method | `internal/reference/service.go` | TODO | High | 2h |
-| 3.2 | Implement Requirements Collection | Pre-collect all (ancestry, trait, model) combinations | `internal/reference/service.go` | TODO | High | 3h |
-| 3.3 | Add Batch Cache Integration | Integrate with batch cache operations | `internal/reference/service.go` | TODO | High | 3h |
-| 3.4 | Implement Bulk Computation | Batch computation for cache misses | `internal/reference/service.go` | TODO | High | 4h |
-| 3.5 | Update Pipeline Stats Usage | Use batch reference stats in pipeline | `internal/pipeline/pipeline.go` | TODO | High | 2h |
-| 3.6 | Write Stats Batch Tests | Unit tests for batch reference stats | `internal/reference/service_test.go` | TODO | Medium | 3h |
-| 3.7 | Validate Computation Accuracy | Ensure batch results match individual results | Test files | TODO | High | 2h |
+| 3.1 | Design Batch Stats Interface | Add `GetReferenceStatsBatch()` method | `internal/reference/service.go` | DONE | High | 2h |
+| 3.2 | Implement Requirements Collection | Pre-collect all (ancestry, trait, model) combinations | `internal/reference/service.go` | DONE | High | 3h |
+| 3.3 | Add Batch Cache Integration | Integrate with batch cache operations | `internal/reference/service.go` | DONE | High | 3h |
+| 3.4 | Implement Bulk Computation | Batch computation for cache misses | `internal/reference/service.go` | DONE | High | 4h |
+| 3.5 | Update Pipeline Stats Usage | Use batch reference stats in pipeline | `internal/pipeline/pipeline.go` | DONE | High | 2h |
+| 3.6 | Write Stats Batch Tests | Unit tests for batch reference stats | `internal/reference/service_test.go` | DONE | Medium | 3h |
+| 3.7 | Validate Computation Accuracy | Ensure batch results match individual results | Test files | DONE | High | 2h |
 | **Phase 4: Pipeline Architecture Optimization** | | | | | | |
 | 4.1 | Design Optimized Pipeline Flow | Create batch-aware pipeline architecture | `internal/pipeline/pipeline.go` | TODO | High | 3h |
 | 4.2 | Implement Requirements Analysis | Pre-analyze all traits and data requirements | `internal/pipeline/pipeline.go` | TODO | High | 4h |

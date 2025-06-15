@@ -17,6 +17,22 @@ import (
 	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
+// ReferenceService handles loading PRS models and allele frequencies using the repository pattern
+type ReferenceService struct {
+	gnomadDB        dbinterface.Repository
+	referenceCache  reference_cache.Cache
+	modelTable      string
+	alleleFreqTable string
+	columnMapping   map[string]string
+}
+
+// ReferenceStatsRequest represents a request for reference statistics computation
+type ReferenceStatsRequest struct {
+	Ancestry *ancestry.Ancestry
+	Trait    string
+	ModelID  string
+}
+
 func init() {
 	// Register required configuration keys for reference service
 	config.RegisterRequiredKey("reference.model_table")
@@ -29,15 +45,6 @@ func init() {
 	// Cache configuration for user's private BigQuery dataset
 	config.RegisterRequiredKey("cache.gcp_project") // Cache storage project
 	config.RegisterRequiredKey("cache.dataset")     // Cache dataset name
-}
-
-// ReferenceService handles loading PRS models and allele frequencies using the repository pattern
-type ReferenceService struct {
-	gnomadDB        dbinterface.Repository
-	referenceCache  reference_cache.Cache
-	modelTable      string
-	alleleFreqTable string
-	columnMapping   map[string]string
 }
 
 // NewReferenceService creates a new reference service
@@ -249,6 +256,84 @@ func (s *ReferenceService) convertRowToVariant(row map[string]interface{}) (mode
 		EffectWeight: effectWeight,
 		EffectFreq:   effectFreq,
 	}, nil
+}
+
+// GetReferenceStatsBatch computes reference statistics for multiple traits in a single bulk operation
+// This method optimizes costs by loading the model once and computing all stats together
+func (s *ReferenceService) GetReferenceStatsBatch(ctx context.Context, requests []ReferenceStatsRequest) (map[string]*reference_stats.ReferenceStats, error) {
+	if len(requests) == 0 {
+		return make(map[string]*reference_stats.ReferenceStats), nil
+	}
+
+	// Validate that all requests use the same model (current assumption)
+	modelID := requests[0].ModelID
+	for _, req := range requests[1:] {
+		if req.ModelID != modelID {
+			return nil, fmt.Errorf("all requests must use the same model ID, got %s and %s", modelID, req.ModelID)
+		}
+	}
+
+	logging.Info("Computing reference stats in batch for %d traits using model %s", len(requests), modelID)
+
+	// Load the PRS model once for all traits
+	prsModel, err := s.LoadModel(ctx, modelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load PRS model for batch computation: %w", err)
+	}
+
+	// Group requests by ancestry for efficient processing
+	ancestryGroups := make(map[string][]ReferenceStatsRequest)
+	for _, req := range requests {
+		ancestryCode := req.Ancestry.Code()
+		ancestryGroups[ancestryCode] = append(ancestryGroups[ancestryCode], req)
+	}
+
+	results := make(map[string]*reference_stats.ReferenceStats)
+	effectSizes := prsModel.GetEffectSizes()
+
+	// Process each ancestry group separately
+	for ancestryCode, ancestryRequests := range ancestryGroups {
+		logging.Info("Processing %d traits for ancestry %s", len(ancestryRequests), ancestryCode)
+
+		// Build trait variants map for this ancestry
+		traitVariants := make(map[string][]model.Variant)
+		for _, req := range ancestryRequests {
+			traitVariants[req.Trait] = prsModel.Variants
+		}
+
+		// Single bulk query for all variant frequencies for this ancestry
+		bulkFreqs, err := s.GetAlleleFrequenciesForTraits(ctx, traitVariants, ancestryRequests[0].Ancestry)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get bulk allele frequencies for ancestry %s: %w", ancestryCode, err)
+		}
+
+		// Compute stats for each trait in this ancestry group
+		for _, req := range ancestryRequests {
+			traitFreqs := bulkFreqs[req.Trait]
+
+			// Compute statistics for this trait
+			stats, err := reference_stats.Compute(traitFreqs, effectSizes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to compute reference stats for trait %s: %w", req.Trait, err)
+			}
+
+			// Add metadata
+			stats.Ancestry = ancestryCode
+			stats.Trait = req.Trait
+			stats.Model = req.ModelID
+
+			// Use ancestry|trait|model as key for results
+			key := fmt.Sprintf("%s|%s|%s", ancestryCode, req.Trait, req.ModelID)
+			results[key] = stats
+
+			logging.Debug("Computed reference stats for trait %s, ancestry %s: mean=%.4f, std=%.4f",
+				req.Trait, ancestryCode, stats.Mean, stats.Std)
+		}
+	}
+
+	logging.Info("Successfully computed reference stats for %d traits across %d ancestry groups",
+		len(results), len(ancestryGroups))
+	return results, nil
 }
 
 // GetReferenceStats retrieves PRS reference statistics for a given ancestry, trait, and model ID.

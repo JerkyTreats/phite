@@ -42,6 +42,7 @@ type PipelineOutput struct {
 type BulkOperationContext struct {
 	CacheRequests []reference_cache.StatsRequest
 	CacheEntries  []reference_cache.CacheEntry
+	StatsRequests []reference.ReferenceStatsRequest // Added for batch reference stats computation
 }
 
 // Run executes the full polygenic risk pipeline using optimized bulk operations.
@@ -159,68 +160,56 @@ func Run(input PipelineInput) (PipelineOutput, error) {
 	if len(cacheMisses) > 0 {
 		logging.Info("Computing reference stats for %d cache misses using bulk operations", len(cacheMisses))
 
-		// Load PRS model once (same model for all traits)
-		prsModel, err := refService.LoadModel(ctx, modelId)
-		if err != nil {
-			logging.Error("Failed to load PRS model for bulk operations: %v", err)
-			return PipelineOutput{}, fmt.Errorf("failed to load PRS model: %w", err)
-		}
-
-		// Pre-collect all variant requirements for cache misses
-		traitVariants := make(map[string][]model.Variant)
+		// Build batch reference stats requests for all cache misses
+		statsRequests := make([]reference.ReferenceStatsRequest, 0, len(cacheMisses))
 		for _, trait := range cacheMisses {
-			traitVariants[trait] = prsModel.Variants
-		}
-
-		// Single bulk query for all variant frequencies across all cache miss traits
-		logging.Info("Executing bulk variant frequency query for %d traits", len(cacheMisses))
-		bulkFreqs, err := refService.GetAlleleFrequenciesForTraits(ctx, traitVariants, ancestryObj)
-		if err != nil {
-			logging.Error("Failed to get bulk allele frequencies: %v", err)
-			return PipelineOutput{}, fmt.Errorf("failed to get bulk allele frequencies: %w", err)
-		}
-
-		// Compute stats for each cache miss using the bulk frequency results
-		effectSizes := prsModel.GetEffectSizes()
-		for _, trait := range cacheMisses {
-			traitFreqs := bulkFreqs[trait]
-
-			// Compute statistics for this trait
-			stats, err := reference_stats.Compute(traitFreqs, effectSizes)
-			if err != nil {
-				logging.Error("Failed to compute reference stats for trait %s: %v", trait, err)
-				return PipelineOutput{}, fmt.Errorf("failed to compute reference stats for trait %s: %w", trait, err)
-			}
-
-			// Add metadata
-			stats.Ancestry = ancestryCode
-			stats.Trait = trait
-			stats.Model = modelId
-
-			computedStats[trait] = stats
-
-			// Cache the result
-			if err := cache.Store(ctx, reference_cache.StatsRequest{
-				Ancestry: ancestryCode,
+			statsRequests = append(statsRequests, reference.ReferenceStatsRequest{
+				Ancestry: ancestryObj,
 				Trait:    trait,
 				ModelID:  modelId,
-			}, stats); err != nil {
-				logging.Warn("Failed to cache computed stats for trait %s: %v", trait, err)
-				// Don't return error, as we still have valid stats
-			}
-
-			// Add to bulk cache entries for consistency tracking
-			bulkCtx.CacheEntries = append(bulkCtx.CacheEntries, reference_cache.CacheEntry{
-				Request: reference_cache.StatsRequest{
-					Ancestry: ancestryCode,
-					Trait:    trait,
-					ModelID:  modelId,
-				},
-				Stats: stats,
 			})
 		}
 
-		logging.Info("Successfully computed reference stats for %d cache misses using bulk operations", len(cacheMisses))
+		// Single bulk computation for all reference stats
+		logging.Info("Executing bulk reference stats computation for %d traits", len(cacheMisses))
+		bulkStats, err := refService.GetReferenceStatsBatch(ctx, statsRequests)
+		if err != nil {
+			logging.Error("Failed to compute bulk reference stats: %v", err)
+			return PipelineOutput{}, fmt.Errorf("failed to compute bulk reference stats: %w", err)
+		}
+
+		// Process bulk results and cache them
+		for _, trait := range cacheMisses {
+			key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, modelId)
+			if stats, found := bulkStats[key]; found {
+				computedStats[trait] = stats
+
+				// Cache the result
+				if err := cache.Store(ctx, reference_cache.StatsRequest{
+					Ancestry: ancestryCode,
+					Trait:    trait,
+					ModelID:  modelId,
+				}, stats); err != nil {
+					logging.Warn("Failed to cache computed stats for trait %s: %v", trait, err)
+					// Don't return error, as we still have valid stats
+				}
+
+				// Add to bulk cache entries for consistency tracking
+				bulkCtx.CacheEntries = append(bulkCtx.CacheEntries, reference_cache.CacheEntry{
+					Request: reference_cache.StatsRequest{
+						Ancestry: ancestryCode,
+						Trait:    trait,
+						ModelID:  modelId,
+					},
+					Stats: stats,
+				})
+			} else {
+				logging.Error("No reference stats computed for trait %s", trait)
+				return PipelineOutput{}, fmt.Errorf("no reference stats computed for trait %s", trait)
+			}
+		}
+
+		logging.Info("Successfully computed and cached reference stats for %d cache misses using bulk operations", len(cacheMisses))
 	}
 
 	// Phase 4: Process traits using cached and computed data
