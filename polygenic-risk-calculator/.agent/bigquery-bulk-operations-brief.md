@@ -203,19 +203,19 @@ Add bulk operation settings to config:
 | Phase | Task | Description | Files to Modify | Status | Priority | Estimated Effort |
 |-------|------|-------------|------------------|--------|----------|------------------|
 | **Phase 1: Cache Bulk Operations** | | | | | | |
-| 1.1 | Design Batch Cache Interface | Add `GetBatch()` and `StoreBatch()` methods to Cache interface | `internal/reference/cache/cache.go` | TODO | High | 2h |
-| 1.2 | Implement StoreBatch Method | Bulk INSERT operations for cache entries | `internal/reference/cache/cache.go` | TODO | High | 3h |
-| 1.3 | Implement GetBatch Method | Single query with IN clause for multiple cache lookups | `internal/reference/cache/cache.go` | TODO | High | 3h |
-| 1.4 | Add Batch Configuration | Add bulk operation settings to config system | `internal/config/config.go` | TODO | Medium | 1h |
-| 1.5 | Update Pipeline Cache Usage | Collect cache operations and execute in bulk | `internal/pipeline/pipeline.go` | TODO | High | 4h |
-| 1.6 | Write Cache Batch Tests | Unit tests for batch cache operations | `internal/reference/cache/cache_test.go` | TODO | Medium | 3h |
+| 1.1 | Design Batch Cache Interface | Add `GetBatch()` and `StoreBatch()` methods to Cache interface | `internal/reference/cache/cache.go` | DONE | High | 2h |
+| 1.2 | Implement StoreBatch Method | Bulk INSERT operations for cache entries | `internal/reference/cache/cache.go` | DONE | High | 3h |
+| 1.3 | Implement GetBatch Method | Single query with IN clause for multiple cache lookups | `internal/reference/cache/cache.go` | DONE | High | 3h |
+| 1.4 | Add Batch Configuration | Add bulk operation settings to config system | `internal/config/config.go` | DONE | Medium | 1h |
+| 1.5 | Update Pipeline Cache Usage | Collect cache operations and execute in bulk | `internal/pipeline/pipeline.go` | DONE | High | 4h |
+| 1.6 | Write Cache Batch Tests | Unit tests for batch cache operations | `internal/reference/cache/cache_test.go` | DONE | Medium | 3h |
 | **Phase 2: Variant Query Optimization** | | | | | | |
-| 2.1 | Design Cross-Trait Batching | Create `GetAlleleFrequenciesForTraits()` method | `internal/reference/service.go` | TODO | High | 2h |
-| 2.2 | Implement Consolidated Queries | Single BigQuery query for all variants across traits | `internal/reference/service.go` | TODO | High | 4h |
-| 2.3 | Add Result Partitioning | Partition frequency results by trait in memory | `internal/reference/service.go` | TODO | High | 2h |
-| 2.4 | Update Pipeline Variant Processing | Use bulk variant queries in pipeline | `internal/pipeline/pipeline.go` | TODO | High | 3h |
-| 2.5 | Write Variant Batch Tests | Unit tests for cross-trait variant batching | `internal/reference/service_test.go` | TODO | Medium | 3h |
-| 2.6 | Ancestry Validation Testing | Test with multiple ancestry combinations | Test files | TODO | Medium | 2h |
+| 2.1 | Design Cross-Trait Batching | Create `GetAlleleFrequenciesForTraits()` method | `internal/reference/service.go` | DONE | High | 2h |
+| 2.2 | Implement Consolidated Queries | Single BigQuery query for all variants across traits | `internal/reference/service.go` | DONE | High | 4h |
+| 2.3 | Add Result Partitioning | Partition frequency results by trait in memory | `internal/reference/service.go` | DONE | High | 2h |
+| 2.4 | Update Pipeline Variant Processing | Use bulk variant queries in pipeline | `internal/pipeline/pipeline.go` | DONE | High | 3h |
+| 2.5 | Write Variant Batch Tests | Unit tests for cross-trait variant batching | `internal/reference/service_test.go` | DONE | Medium | 3h |
+| 2.6 | Ancestry Validation Testing | Test with multiple ancestry combinations | Test files | DONE | Medium | 2h |
 | **Phase 3: Reference Stats Batching** | | | | | | |
 | 3.1 | Design Batch Stats Interface | Add `GetReferenceStatsBatch()` method | `internal/reference/service.go` | TODO | High | 2h |
 | 3.2 | Implement Requirements Collection | Pre-collect all (ancestry, trait, model) combinations | `internal/reference/service.go` | TODO | High | 3h |

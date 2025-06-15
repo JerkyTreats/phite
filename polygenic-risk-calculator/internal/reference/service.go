@@ -114,20 +114,35 @@ func (s *ReferenceService) LoadModel(ctx context.Context, modelID string) (*mode
 	return prsModel, nil
 }
 
-// GetAlleleFrequencies retrieves allele frequencies for the given variants and ancestry
-func (s *ReferenceService) GetAlleleFrequencies(ctx context.Context, variants []model.Variant, ancestry *ancestry.Ancestry) (map[string]float64, error) {
-	if len(variants) == 0 {
-		return map[string]float64{}, nil
+// GetAlleleFrequenciesForTraits retrieves allele frequencies for variants across multiple traits in a single BigQuery operation
+// This method optimizes costs by batching all variant queries together instead of making separate queries per trait
+func (s *ReferenceService) GetAlleleFrequenciesForTraits(ctx context.Context, traitVariants map[string][]model.Variant, ancestry *ancestry.Ancestry) (map[string]map[string]float64, error) {
+	if len(traitVariants) == 0 {
+		return map[string]map[string]float64{}, nil
+	}
+
+	// Collect all unique variants across all traits to avoid duplicates in the query
+	uniqueVariants := make(map[string]model.Variant)
+	for trait, variants := range traitVariants {
+		logging.Debug("Collecting %d variants for trait %s", len(variants), trait)
+		for _, v := range variants {
+			uniqueVariants[v.ID] = v
+		}
+	}
+
+	if len(uniqueVariants) == 0 {
+		logging.Info("No variants found across all traits")
+		return map[string]map[string]float64{}, nil
 	}
 
 	// Get all columns needed for this ancestry's precedence logic
 	columns := ancestry.ColumnPrecedence()
 	selectCols := append([]string{"chrom", "pos", "ref", "alt"}, columns...)
 
-	// Build variant filters
+	// Build consolidated variant filters for all unique variants
 	var filters []string
 	var args []interface{}
-	for _, v := range variants {
+	for _, v := range uniqueVariants {
 		chrom, pos, ref, alt, err := model.ParseVariantID(v.ID)
 		if err != nil {
 			return nil, fmt.Errorf("invalid variant ID %s: %w", v.ID, err)
@@ -137,7 +152,7 @@ func (s *ReferenceService) GetAlleleFrequencies(ctx context.Context, variants []
 		args = append(args, chrom, pos, ref, alt)
 	}
 
-	// Build and execute query to retrieve all relevant columns
+	// Build and execute single consolidated query for all variants
 	query := fmt.Sprintf(
 		"SELECT %s FROM %s WHERE %s",
 		strings.Join(selectCols, ", "),
@@ -145,13 +160,15 @@ func (s *ReferenceService) GetAlleleFrequencies(ctx context.Context, variants []
 		strings.Join(filters, " OR "),
 	)
 
-	logging.Info("Querying allele frequencies for %d variants with ancestry %s", len(variants), ancestry.Code())
+	logging.Info("Querying allele frequencies for %d unique variants across %d traits with ancestry %s",
+		len(uniqueVariants), len(traitVariants), ancestry.Code())
 	rows, err := s.gnomadDB.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query allele frequencies: %w", err)
 	}
 
-	freqs := make(map[string]float64)
+	// Process consolidated results and build frequency map
+	allFreqs := make(map[string]float64)
 	for _, row := range rows {
 		// Let ancestry object select the best frequency from available columns
 		freq, usedCol, err := ancestry.SelectFrequency(row)
@@ -167,14 +184,28 @@ func (s *ReferenceService) GetAlleleFrequencies(ctx context.Context, variants []
 		alt := utils.ToString(row["alt"])
 
 		variantID := model.FormatVariantID(chrom, pos, ref, alt)
-		freqs[variantID] = freq
+		allFreqs[variantID] = freq
 
 		// Log which column was used for debugging
 		logging.Debug("Used column %s for variant %s (frequency: %f)", usedCol, variantID, freq)
 	}
 
-	logging.Info("Retrieved allele frequencies for %d variants using ancestry %s", len(freqs), ancestry.Code())
-	return freqs, nil
+	// Partition consolidated results back to per-trait format
+	result := make(map[string]map[string]float64)
+	for trait, variants := range traitVariants {
+		traitFreqs := make(map[string]float64)
+		for _, v := range variants {
+			if freq, found := allFreqs[v.ID]; found {
+				traitFreqs[v.ID] = freq
+			}
+		}
+		result[trait] = traitFreqs
+		logging.Debug("Partitioned %d variant frequencies for trait %s", len(traitFreqs), trait)
+	}
+
+	logging.Info("Retrieved allele frequencies for %d unique variants across %d traits using ancestry %s",
+		len(allFreqs), len(traitVariants), ancestry.Code())
+	return result, nil
 }
 
 // convertRowToVariant converts a database row to a Variant
@@ -246,19 +277,21 @@ func (s *ReferenceService) GetReferenceStats(ctx context.Context, ancestry *ance
 // computeAndCacheStats computes PRS statistics on the fly and caches the result.
 func (s *ReferenceService) computeAndCacheStats(ctx context.Context, ancestry *ancestry.Ancestry, trait, modelID string) (*reference_stats.ReferenceStats, error) {
 	// Load the PRS model
-	model, err := s.LoadModel(ctx, modelID)
+	prsModel, err := s.LoadModel(ctx, modelID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load PRS model: %w", err)
 	}
 
 	// Get allele frequencies using ancestry object
-	freqs, err := s.GetAlleleFrequencies(ctx, model.Variants, ancestry)
+	freqs, err := s.GetAlleleFrequenciesForTraits(ctx, map[string][]model.Variant{
+		trait: prsModel.Variants,
+	}, ancestry)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get allele frequencies: %w", err)
 	}
 
 	// Compute statistics
-	stats, err := reference_stats.Compute(freqs, model.GetEffectSizes())
+	stats, err := reference_stats.Compute(freqs[trait], prsModel.GetEffectSizes())
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute PRS statistics: %w", err)
 	}

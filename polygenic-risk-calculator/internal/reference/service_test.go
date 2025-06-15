@@ -33,15 +33,38 @@ func (m *mockRepo) ValidateTable(ctx context.Context, table string, requiredColu
 }
 
 type mockCache struct {
-	getFunc   func(ctx context.Context, req reference_cache.StatsRequest) (*reference_stats.ReferenceStats, error)
-	storeFunc func(ctx context.Context, req reference_cache.StatsRequest, stats *reference_stats.ReferenceStats) error
+	getFunc        func(ctx context.Context, req reference_cache.StatsRequest) (*reference_stats.ReferenceStats, error)
+	storeFunc      func(ctx context.Context, req reference_cache.StatsRequest, stats *reference_stats.ReferenceStats) error
+	getBatchFunc   func(ctx context.Context, reqs []reference_cache.StatsRequest) (map[string]*reference_stats.ReferenceStats, error)
+	storeBatchFunc func(ctx context.Context, entries []reference_cache.CacheEntry) error
 }
 
 func (m *mockCache) Get(ctx context.Context, req reference_cache.StatsRequest) (*reference_stats.ReferenceStats, error) {
-	return m.getFunc(ctx, req)
+	if m.getFunc != nil {
+		return m.getFunc(ctx, req)
+	}
+	return nil, nil
 }
+
 func (m *mockCache) Store(ctx context.Context, req reference_cache.StatsRequest, stats *reference_stats.ReferenceStats) error {
-	return m.storeFunc(ctx, req, stats)
+	if m.storeFunc != nil {
+		return m.storeFunc(ctx, req, stats)
+	}
+	return nil
+}
+
+func (m *mockCache) GetBatch(ctx context.Context, reqs []reference_cache.StatsRequest) (map[string]*reference_stats.ReferenceStats, error) {
+	if m.getBatchFunc != nil {
+		return m.getBatchFunc(ctx, reqs)
+	}
+	return make(map[string]*reference_stats.ReferenceStats), nil
+}
+
+func (m *mockCache) StoreBatch(ctx context.Context, entries []reference_cache.CacheEntry) error {
+	if m.storeBatchFunc != nil {
+		return m.storeBatchFunc(ctx, entries)
+	}
+	return nil
 }
 
 func TestMain(m *testing.M) {
@@ -139,11 +162,12 @@ func TestReferenceService_LoadModel_NoRows(t *testing.T) {
 	assert.Nil(t, model)
 }
 
-func TestReferenceService_GetAlleleFrequencies_Success(t *testing.T) {
+func TestReferenceService_GetAlleleFrequenciesForTraits_Success(t *testing.T) {
 	repo := &mockRepo{
 		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
 			return []map[string]interface{}{
 				{"chrom": "1", "pos": int64(1000), "ref": "A", "alt": "G", "AF_nfe": 0.2},
+				{"chrom": "2", "pos": int64(2000), "ref": "C", "alt": "T", "AF_nfe": 0.3},
 			}, nil
 		},
 	}
@@ -159,19 +183,26 @@ func TestReferenceService_GetAlleleFrequencies_Success(t *testing.T) {
 	eur, err := ancestry.New("EUR", "")
 	assert.NoError(t, err)
 
-	variants := []model.Variant{{ID: "1:1000:A:G"}}
-	freqs, err := service.GetAlleleFrequencies(context.Background(), variants, eur)
+	// Test multi-trait scenario
+	traitVariants := map[string][]model.Variant{
+		"Height": {{ID: "1:1000:A:G"}},
+		"BMI":    {{ID: "2:2000:C:T"}},
+	}
+
+	results, err := service.GetAlleleFrequenciesForTraits(context.Background(), traitVariants, eur)
 	assert.NoError(t, err)
-	assert.Equal(t, 0.2, freqs["1:1000:A:G"])
+	assert.Len(t, results, 2)
+	assert.Equal(t, 0.2, results["Height"]["1:1000:A:G"])
+	assert.Equal(t, 0.3, results["BMI"]["2:2000:C:T"])
 }
 
-func TestReferenceService_GetAlleleFrequencies_UnsupportedAncestry(t *testing.T) {
+func TestReferenceService_GetAlleleFrequenciesForTraits_UnsupportedAncestry(t *testing.T) {
 	// Test with invalid ancestry - should fail during creation
 	_, err := ancestry.New("INVALID", "")
 	assert.Error(t, err) // This should fail, confirming validation works
 }
 
-func TestReferenceService_GetAlleleFrequencies_NoFrequencyData(t *testing.T) {
+func TestReferenceService_GetAlleleFrequenciesForTraits_NoFrequencyData(t *testing.T) {
 	repo := &mockRepo{
 		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
 			return []map[string]interface{}{
@@ -191,11 +222,13 @@ func TestReferenceService_GetAlleleFrequencies_NoFrequencyData(t *testing.T) {
 	eur, err := ancestry.New("EUR", "")
 	assert.NoError(t, err)
 
-	variants := []model.Variant{{ID: "1:1000:A:G"}}
-	freqs, err := service.GetAlleleFrequencies(context.Background(), variants, eur)
+	traitVariants := map[string][]model.Variant{
+		"Height": {{ID: "1:1000:A:G"}},
+	}
+	results, err := service.GetAlleleFrequenciesForTraits(context.Background(), traitVariants, eur)
 	assert.NoError(t, err)
-	// Should return empty map when no frequency data available
-	assert.Empty(t, freqs)
+	// Should return empty trait map when no frequency data available
+	assert.Empty(t, results["Height"])
 }
 
 func TestReferenceService_GetReferenceStats_CacheHit(t *testing.T) {
@@ -259,4 +292,91 @@ func TestReferenceService_GetReferenceStats_CacheMissAndCompute(t *testing.T) {
 	stats, err := service.GetReferenceStats(context.Background(), eur, "Height", "test_model")
 	assert.NoError(t, err)
 	assert.NotNil(t, stats)
+}
+
+func TestReferenceService_GetAlleleFrequenciesForTraits_EmptyInput(t *testing.T) {
+	service := &ReferenceService{
+		gnomadDB:        &mockRepo{},
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+	}
+
+	// Create ancestry object for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
+	// Test empty trait variants map
+	results, err := service.GetAlleleFrequenciesForTraits(context.Background(), map[string][]model.Variant{}, eur)
+	assert.NoError(t, err)
+	assert.Empty(t, results)
+}
+
+func TestReferenceService_GetAlleleFrequenciesForTraits_VariantDeduplication(t *testing.T) {
+	queryCalled := 0
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			queryCalled++
+			// Should only be called once despite duplicate variants across traits
+			return []map[string]interface{}{
+				{"chrom": "1", "pos": int64(1000), "ref": "A", "alt": "G", "AF_nfe": 0.2},
+			}, nil
+		},
+	}
+	service := &ReferenceService{
+		gnomadDB:        repo,
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+	}
+
+	// Create ancestry object for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
+	// Test with same variant in multiple traits (should deduplicate)
+	traitVariants := map[string][]model.Variant{
+		"Height":   {{ID: "1:1000:A:G"}},
+		"BMI":      {{ID: "1:1000:A:G"}}, // Same variant
+		"Diabetes": {{ID: "1:1000:A:G"}}, // Same variant again
+	}
+
+	results, err := service.GetAlleleFrequenciesForTraits(context.Background(), traitVariants, eur)
+	assert.NoError(t, err)
+	assert.Len(t, results, 3) // All three traits should get results
+	assert.Equal(t, 0.2, results["Height"]["1:1000:A:G"])
+	assert.Equal(t, 0.2, results["BMI"]["1:1000:A:G"])
+	assert.Equal(t, 0.2, results["Diabetes"]["1:1000:A:G"])
+
+	// Verify query was only called once (deduplication worked)
+	assert.Equal(t, 1, queryCalled)
+}
+
+func TestReferenceService_GetAlleleFrequenciesForTraits_DBError(t *testing.T) {
+	repo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			return nil, errors.New("database error")
+		},
+	}
+	service := &ReferenceService{
+		gnomadDB:        repo,
+		referenceCache:  &mockCache{},
+		modelTable:      config.GetString("reference.model_table"),
+		alleleFreqTable: config.GetString("reference.allele_freq_table"),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+	}
+
+	// Create ancestry object for testing
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
+	traitVariants := map[string][]model.Variant{
+		"Height": {{ID: "1:1000:A:G"}},
+	}
+
+	results, err := service.GetAlleleFrequenciesForTraits(context.Background(), traitVariants, eur)
+	assert.Error(t, err)
+	assert.Nil(t, results)
 }
