@@ -1,43 +1,43 @@
 package prs
 
-import "phite.io/polygenic-risk-calculator/internal/model"
-
 import (
-	"testing"
 	"math"
+	"testing"
+
 	"phite.io/polygenic-risk-calculator/internal/logging"
+	"phite.io/polygenic-risk-calculator/internal/model"
 )
 
 func TestNormalizePRS(t *testing.T) {
 	logging.SetSilentLoggingForTest()
 	tests := []struct {
-		name           string
-		prsScore       float64
-		ref            model.ReferenceStats
-		expectsError   bool
-		expectedZ      float64
-		expectedPct    float64
+		name         string
+		prsScore     float64
+		ref          model.ReferenceStats
+		expectsError bool
+		expectedZ    float64
+		expectedPct  float64
 	}{
 		{
-			name:         "PRS at mean",
-			prsScore:     1.0,
-			ref:          model.ReferenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
-			expectedZ:    0.0,
-			expectedPct:  50.0,
+			name:        "PRS at mean",
+			prsScore:    1.0,
+			ref:         model.ReferenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
+			expectedZ:   0.0,
+			expectedPct: 50.0,
 		},
 		{
-			name:         "PRS at min",
-			prsScore:     0.0,
-			ref:          model.ReferenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
-			expectedZ:    -2.0,
-			expectedPct:  2.28, // approx percentile for z=-2
+			name:        "PRS at min",
+			prsScore:    0.0,
+			ref:         model.ReferenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
+			expectedZ:   -2.0,
+			expectedPct: 2.28, // approx percentile for z=-2
 		},
 		{
-			name:         "PRS at max",
-			prsScore:     2.0,
-			ref:          model.ReferenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
-			expectedZ:    2.0,
-			expectedPct:  97.72, // approx percentile for z=2
+			name:        "PRS at max",
+			prsScore:    2.0,
+			ref:         model.ReferenceStats{Mean: 1.0, Std: 0.5, Min: 0.0, Max: 2.0},
+			expectedZ:   2.0,
+			expectedPct: 97.72, // approx percentile for z=2
 		},
 		{
 			name:         "Malformed stats (zero std)",
@@ -48,8 +48,15 @@ func TestNormalizePRS(t *testing.T) {
 		{
 			name:         "Malformed stats (missing mean)",
 			prsScore:     1.0,
-			ref:          model.ReferenceStats{Std: 0.5, Min: 0.0, Max: 2.0},
+			ref:          model.ReferenceStats{Mean: math.NaN(), Std: 0.5, Min: 0.0, Max: 2.0},
 			expectsError: true,
+		},
+		{
+			name:        "Valid stats with zero mean",
+			prsScore:    1.0,
+			ref:         model.ReferenceStats{Mean: 0.0, Std: 0.5, Min: -1.0, Max: 1.0},
+			expectedZ:   2.0,
+			expectedPct: 97.72, // approx percentile for z=2
 		},
 	}
 

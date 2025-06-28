@@ -20,7 +20,7 @@ import (
 // ReferenceService handles loading PRS models and allele frequencies using the repository pattern
 type ReferenceService struct {
 	gnomadDB        dbinterface.Repository
-	referenceCache  reference_cache.Cache
+	ReferenceCache  reference_cache.Cache
 	modelTable      string
 	alleleFreqTable string
 	columnMapping   map[string]string
@@ -47,38 +47,45 @@ func init() {
 	config.RegisterRequiredKey("cache.dataset")     // Cache dataset name
 }
 
-// NewReferenceService creates a new reference service
-func NewReferenceService() *ReferenceService {
-	// gnomAD public data repository (read-only)
-	gnomadDB, err := db.GetRepository(context.Background(), "bq", map[string]string{
-		"project_id":      "bigquery-public-data",
-		"dataset_id":      "gnomad",
-		"billing_project": config.GetString("user.gcp_project"),
-	})
-	if err != nil {
-		logging.Error("Failed to create gnomAD repository: %v", err)
-		return nil
+// NewReferenceService creates a new reference service with dependency injection
+// If gnomadDB or ReferenceCache are nil, they will be created using default configuration
+func NewReferenceService(gnomadDB dbinterface.Repository, ReferenceCache reference_cache.Cache) (*ReferenceService, error) {
+	var err error
+
+	// Create gnomAD repository if not provided
+	if gnomadDB == nil {
+		gnomadDB, err = db.GetRepository(context.Background(), "bq", map[string]string{
+			"project_id":      "bigquery-public-data",
+			"dataset_id":      "gnomad",
+			"billing_project": config.GetString("user.gcp_project"),
+		})
+		if err != nil {
+			logging.Error("Failed to create gnomAD repository: %v", err)
+			return nil, fmt.Errorf("failed to create gnomAD repository: %w", err)
+		}
 	}
 
-	// Cache repository (read-write to user's project)
-	cacheParams := map[string]string{
-		"project_id":      config.GetString("cache.gcp_project"),
-		"dataset_id":      config.GetString("cache.dataset"),
-		"billing_project": config.GetString("user.gcp_project"),
-	}
-	referenceCache, err := reference_cache.NewRepositoryCache(cacheParams)
-	if err != nil {
-		logging.Error("Failed to create cache repository: %v", err)
-		return nil
+	// Create cache if not provided
+	if ReferenceCache == nil {
+		cacheParams := map[string]string{
+			"project_id":      config.GetString("cache.gcp_project"),
+			"dataset_id":      config.GetString("cache.dataset"),
+			"billing_project": config.GetString("user.gcp_project"),
+		}
+		ReferenceCache, err = reference_cache.NewRepositoryCache(nil, cacheParams)
+		if err != nil {
+			logging.Error("Failed to create cache repository: %v", err)
+			return nil, fmt.Errorf("failed to create cache repository: %w", err)
+		}
 	}
 
 	return &ReferenceService{
 		gnomadDB:        gnomadDB,
-		referenceCache:  referenceCache,
+		ReferenceCache:  ReferenceCache,
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
-	}
+	}, nil
 }
 
 // LoadModel loads a PRS model from the configured table
@@ -343,7 +350,7 @@ func (s *ReferenceService) GetReferenceStats(ctx context.Context, ancestry *ance
 	ancestryCode := ancestry.Code()
 
 	// Try to get from cache first
-	stats, err := s.referenceCache.Get(ctx, reference_cache.StatsRequest{
+	stats, err := s.ReferenceCache.Get(ctx, reference_cache.StatsRequest{
 		Ancestry: ancestryCode,
 		Trait:    trait,
 		ModelID:  modelID,
@@ -388,7 +395,7 @@ func (s *ReferenceService) computeAndCacheStats(ctx context.Context, ancestry *a
 	stats.Model = modelID
 
 	// Cache the result using ancestry code
-	if err := s.referenceCache.Store(ctx, reference_cache.StatsRequest{
+	if err := s.ReferenceCache.Store(ctx, reference_cache.StatsRequest{
 		Ancestry: ancestryCode,
 		Trait:    trait,
 		ModelID:  modelID,

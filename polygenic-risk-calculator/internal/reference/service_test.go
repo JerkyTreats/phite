@@ -114,7 +114,7 @@ func TestReferenceService_LoadModel_Success(t *testing.T) {
 	}
 	service := &ReferenceService{
 		gnomadDB:        repo,
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -134,7 +134,7 @@ func TestReferenceService_LoadModel_DBError(t *testing.T) {
 	}
 	service := &ReferenceService{
 		gnomadDB:        repo,
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -152,7 +152,7 @@ func TestReferenceService_LoadModel_NoRows(t *testing.T) {
 	}
 	service := &ReferenceService{
 		gnomadDB:        repo,
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -173,7 +173,7 @@ func TestReferenceService_GetAlleleFrequenciesForTraits_Success(t *testing.T) {
 	}
 	service := &ReferenceService{
 		gnomadDB:        repo,
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -212,7 +212,7 @@ func TestReferenceService_GetAlleleFrequenciesForTraits_NoFrequencyData(t *testi
 	}
 	service := &ReferenceService{
 		gnomadDB:        repo,
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -239,7 +239,7 @@ func TestReferenceService_GetReferenceStats_CacheHit(t *testing.T) {
 	}
 	service := &ReferenceService{
 		gnomadDB:        &mockRepo{},
-		referenceCache:  cache,
+		ReferenceCache:  cache,
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -279,7 +279,7 @@ func TestReferenceService_GetReferenceStats_CacheMissAndCompute(t *testing.T) {
 	}
 	service := &ReferenceService{
 		gnomadDB:        repo,
-		referenceCache:  cache,
+		ReferenceCache:  cache,
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -297,7 +297,7 @@ func TestReferenceService_GetReferenceStats_CacheMissAndCompute(t *testing.T) {
 func TestReferenceService_GetAlleleFrequenciesForTraits_EmptyInput(t *testing.T) {
 	service := &ReferenceService{
 		gnomadDB:        &mockRepo{},
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -326,7 +326,7 @@ func TestReferenceService_GetAlleleFrequenciesForTraits_VariantDeduplication(t *
 	}
 	service := &ReferenceService{
 		gnomadDB:        repo,
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -362,7 +362,7 @@ func TestReferenceService_GetAlleleFrequenciesForTraits_DBError(t *testing.T) {
 	}
 	service := &ReferenceService{
 		gnomadDB:        repo,
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -400,7 +400,7 @@ func TestReferenceService_GetReferenceStatsBatch_Success(t *testing.T) {
 	}
 	service := &ReferenceService{
 		gnomadDB:        repo,
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -435,7 +435,7 @@ func TestReferenceService_GetReferenceStatsBatch_Success(t *testing.T) {
 func TestReferenceService_GetReferenceStatsBatch_EmptyInput(t *testing.T) {
 	service := &ReferenceService{
 		gnomadDB:        &mockRepo{},
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -449,7 +449,7 @@ func TestReferenceService_GetReferenceStatsBatch_EmptyInput(t *testing.T) {
 func TestReferenceService_GetReferenceStatsBatch_DifferentModels(t *testing.T) {
 	service := &ReferenceService{
 		gnomadDB:        &mockRepo{},
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -488,7 +488,7 @@ func TestReferenceService_GetReferenceStatsBatch_MultipleAncestries(t *testing.T
 	}
 	service := &ReferenceService{
 		gnomadDB:        repo,
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
@@ -526,7 +526,7 @@ func TestReferenceService_GetReferenceStatsBatch_ModelLoadError(t *testing.T) {
 	}
 	service := &ReferenceService{
 		gnomadDB:        repo,
-		referenceCache:  &mockCache{},
+		ReferenceCache:  &mockCache{},
 		modelTable:      config.GetString("reference.model_table"),
 		alleleFreqTable: config.GetString("reference.allele_freq_table"),
 		columnMapping:   config.GetStringMapString("reference.column_mapping"),
