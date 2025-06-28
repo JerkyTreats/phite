@@ -225,7 +225,7 @@ func TestCompute(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "extreme values",
+			name: "extreme values (zero variance)",
 			alleleFreqs: map[string]float64{
 				"rs1": 0.0,
 				"rs2": 1.0,
@@ -236,10 +236,38 @@ func TestCompute(t *testing.T) {
 			},
 			wantErr: false,
 			checkFunc: func(t *testing.T, stats *ReferenceStats) {
+				// With frequencies 0.0 and 1.0, variance should be 0 (no genetic variation)
+				// This is mathematically correct under Hardy-Weinberg equilibrium
+				assert.Equal(t, 0.0, stats.Std)
+				assert.LessOrEqual(t, stats.Min, stats.Max)
+				assert.GreaterOrEqual(t, stats.Mean, stats.Min)
+				assert.LessOrEqual(t, stats.Mean, stats.Max)
+				// Mean should be 2*0.0*(-1.0) + 2*1.0*1.0 = 2.0
+				assert.Equal(t, 2.0, stats.Mean)
+			},
+		},
+		{
+			name: "non-zero variance case",
+			alleleFreqs: map[string]float64{
+				"rs1": 0.3,
+				"rs2": 0.6,
+			},
+			effectSizes: map[string]float64{
+				"rs1": 0.5,
+				"rs2": -0.4,
+			},
+			wantErr: false,
+			checkFunc: func(t *testing.T, stats *ReferenceStats) {
+				// With intermediate frequencies, variance should be > 0
 				assert.Greater(t, stats.Std, 0.0)
 				assert.LessOrEqual(t, stats.Min, stats.Max)
 				assert.GreaterOrEqual(t, stats.Mean, stats.Min)
 				assert.LessOrEqual(t, stats.Mean, stats.Max)
+				// Expected values with corrected formulas:
+				// Mean = 2*(0.3*0.5 + 0.6*(-0.4)) = 2*(0.15 - 0.24) = -0.18
+				// Variance = 2*(0.3*0.7*0.25 + 0.6*0.4*0.16) = 2*(0.0525 + 0.0384) = 0.1818
+				assert.InDelta(t, -0.18, stats.Mean, 1e-10)
+				assert.InDelta(t, 0.4264, stats.Std, 1e-4) // sqrt(0.1818)
 			},
 		},
 	}

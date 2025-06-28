@@ -324,7 +324,10 @@ func processAllTraitsInMemory(requirements *PipelineRequirements, bulkData *Bulk
 		}
 
 		// Calculate PRS using pre-loaded data
-		prsResult := prs.CalculatePRS(traitSNPs)
+		prsResult, err := prs.CalculatePRS(traitSNPs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate PRS for trait %s: %w", trait, err)
+		}
 		prsResults[trait] = prsResult
 
 		// Get reference stats (from cache or computed)

@@ -35,39 +35,54 @@ func (s *ReferenceStats) NormalizePRS(rawPRS float64) (float64, error) {
 	return percentile, nil
 }
 
-// Compute calculates PRS statistics from allele frequencies and effect sizes.
-// This is used for on-the-fly computation when cache misses occur.
+// Compute calculates PRS statistics from allele frequencies and effect sizes using
+// CORRECT population parameter formulas (not sample statistics).
+//
+// Population Mean: μ_pop = Σ_j(2*p_j*β_j)
+// Population Variance: Var(PRS) = Σ_j(2*p_j*(1-p_j)*β_j²)
+//
+// This implements the industry-standard 2025 PRS methodology with proper
+// Hardy-Weinberg equilibrium assumptions.
 func Compute(alleleFreqs map[string]float64, effectSizes map[string]float64) (*ReferenceStats, error) {
 	if len(alleleFreqs) == 0 || len(effectSizes) == 0 {
 		return nil, fmt.Errorf("empty allele frequencies or effect sizes")
 	}
 
-	var sum float64
-	var sumSq float64
-	var min float64 = math.MaxFloat64
-	var max float64 = -math.MaxFloat64
+	var populationMean float64
+	var populationVariance float64
+	var minContribution float64 = math.MaxFloat64
+	var maxContribution float64 = -math.MaxFloat64
 	var validVariants int
 
-	// Calculate mean and standard deviation
+	// Calculate population parameters using CORRECT formulas
 	for variant, freq := range alleleFreqs {
 		effect, ok := effectSizes[variant]
 		if !ok {
 			continue // Skip variants without effect sizes
 		}
 
+		// Validate frequency bounds [0, 1]
+		if freq < 0 || freq > 1 {
+			return nil, fmt.Errorf("invalid allele frequency %f for variant %s: must be in [0,1]", freq, variant)
+		}
+
 		validVariants++
 
-		// Expected value for this variant
-		expected := 2 * freq * effect
-		sum += expected
-		sumSq += expected * expected
+		// Population mean: μ_pop = Σ_j(2*p_j*β_j)
+		contributionToMean := 2 * freq * effect
+		populationMean += contributionToMean
 
-		// Update min/max
-		if expected < min {
-			min = expected
+		// Population variance: Var(PRS) = Σ_j(2*p_j*(1-p_j)*β_j²)
+		// This is the Hardy-Weinberg equilibrium variance formula
+		contributionToVariance := 2 * freq * (1 - freq) * effect * effect
+		populationVariance += contributionToVariance
+
+		// Track min/max individual contributions for bounds
+		if contributionToMean < minContribution {
+			minContribution = contributionToMean
 		}
-		if expected > max {
-			max = expected
+		if contributionToMean > maxContribution {
+			maxContribution = contributionToMean
 		}
 	}
 
@@ -75,15 +90,43 @@ func Compute(alleleFreqs map[string]float64, effectSizes map[string]float64) (*R
 		return nil, fmt.Errorf("no matching variants found between allele frequencies and effect sizes")
 	}
 
-	n := float64(validVariants)
-	mean := sum / n
-	variance := (sumSq / n) - (mean * mean)
-	std := math.Sqrt(variance)
+	// Population standard deviation
+	populationStd := math.Sqrt(populationVariance)
+
+	// Validate mathematical consistency
+	if populationVariance < 0 {
+		return nil, fmt.Errorf("negative population variance %f: mathematical error", populationVariance)
+	}
+
+	// For single variant case, ensure we don't have zero variance (unless mathematically expected)
+	if validVariants == 1 && populationVariance == 0 {
+		// Zero variance is mathematically correct in these cases:
+		// 1. Effect size is zero (β = 0)
+		// 2. Allele frequency is 0 or 1 (fixed allele, no segregation)
+		var isValidZeroVariance bool
+		for variant, freq := range alleleFreqs {
+			if effect, ok := effectSizes[variant]; ok {
+				// Valid cases for zero variance
+				if math.Abs(effect) <= 1e-15 || freq == 0.0 || freq == 1.0 {
+					isValidZeroVariance = true
+					break
+				}
+			}
+		}
+		if !isValidZeroVariance {
+			return nil, fmt.Errorf("zero variance detected with non-zero effect and segregating allele: mathematical error in population variance calculation")
+		}
+	}
+
+	// Estimate reasonable bounds for population distribution
+	// For a population following HWE, most individuals will be within ±3σ of the mean
+	estimatedMin := populationMean - 3*populationStd
+	estimatedMax := populationMean + 3*populationStd
 
 	return &ReferenceStats{
-		Mean: mean,
-		Std:  std,
-		Min:  min,
-		Max:  max,
+		Mean: populationMean,
+		Std:  populationStd,
+		Min:  estimatedMin,
+		Max:  estimatedMax,
 	}, nil
 }
