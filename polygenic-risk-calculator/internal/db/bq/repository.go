@@ -13,7 +13,8 @@ import (
 )
 
 func init() {
-	config.RegisterRequiredKey("bigquery.dataset_id")
+	// BigQuery repository uses infrastructure constants - registered in db/repository.go
+	// No domain-specific configuration needed here
 }
 
 type Repository struct {
@@ -106,7 +107,7 @@ func (r *Repository) Insert(ctx context.Context, table string, rows []map[string
 	// Get dataset and table references
 	datasetID := r.datasetID
 	if datasetID == "" {
-		datasetID = config.GetString("bigquery.dataset_id")
+		datasetID = config.GetString(config.BigQueryGnomadDatasetKey)
 	}
 	tableRef := r.bqclient.Client.Dataset(datasetID).Table(table)
 	inserter := tableRef.Inserter()
@@ -141,7 +142,7 @@ func (r *Repository) ValidateTable(ctx context.Context, table string, requiredCo
 	// Get dataset and table references
 	datasetID := r.datasetID
 	if datasetID == "" {
-		datasetID = config.GetString("bigquery.dataset_id")
+		datasetID = config.GetString(config.BigQueryGnomadDatasetKey)
 	}
 	tableRef := r.bqclient.Client.Dataset(datasetID).Table(table)
 

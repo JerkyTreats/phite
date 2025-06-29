@@ -13,16 +13,15 @@ import (
 	reference_stats "phite.io/polygenic-risk-calculator/internal/reference/stats"
 )
 
-// Configuration keys for cache settings
+// Domain-specific configuration keys for cache
 const (
-	TableIDKey        = "bigquery.table_id"
-	CacheBatchSizeKey = "cache.batch_size"
+	BatchSizeKey = "cache.batch_size" // Cache batch operation size
 )
 
 func init() {
-	// Register required configuration keys
-	config.RegisterRequiredKey(TableIDKey)
-	// Batch operation configuration keys have defaults, so they don't need to be required
+	// Register required infrastructure keys (table reference)
+	config.RegisterRequiredKey(config.TableCacheTableKey)
+	// Domain-specific keys with defaults don't need to be required
 }
 
 // ReferenceStatsBackend defines the interface for any backend that can provide reference stats.
@@ -81,7 +80,7 @@ func NewRepositoryCache(repo dbinterface.Repository, params ...map[string]string
 
 	return &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}, nil
 }
 
@@ -226,7 +225,7 @@ func (c *RepositoryCache) StoreBatch(ctx context.Context, entries []CacheEntry) 
 	}
 
 	// Get batch size from config (default to 100 if not set)
-	batchSize := config.GetInt(CacheBatchSizeKey)
+	batchSize := config.GetInt(BatchSizeKey)
 	if batchSize <= 0 {
 		batchSize = 100 // Default batch size
 	}

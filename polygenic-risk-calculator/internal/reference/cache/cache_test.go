@@ -78,7 +78,7 @@ func TestRepositoryCache_Get_CacheHit(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 	stats, err := cache.Get(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"})
 	assert.NoError(t, err)
@@ -96,7 +96,7 @@ func TestRepositoryCache_Get_CacheMiss(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 	stats, err := cache.Get(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"})
 	assert.NoError(t, err)
@@ -114,7 +114,7 @@ func TestRepositoryCache_Get_MultipleRows(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 	stats, err := cache.Get(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"})
 	assert.Error(t, err)
@@ -131,7 +131,7 @@ func TestRepositoryCache_Get_InvalidStats(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 	stats, err := cache.Get(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"})
 	assert.Error(t, err)
@@ -146,7 +146,7 @@ func TestRepositoryCache_Get_QueryError(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 	stats, err := cache.Get(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"})
 	assert.Error(t, err)
@@ -163,7 +163,7 @@ func TestRepositoryCache_Store_Valid(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 	stats := &reference_stats.ReferenceStats{Mean: 0.5, Std: 1.0, Min: 0.0, Max: 1.0}
 	err := cache.Store(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"}, stats)
@@ -179,7 +179,7 @@ func TestRepositoryCache_Store_InvalidStats(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 	stats := &reference_stats.ReferenceStats{Mean: 0.5, Std: -1.0, Min: 0.0, Max: 1.0}
 	err := cache.Store(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"}, stats)
@@ -194,7 +194,7 @@ func TestRepositoryCache_Store_InsertError(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 	stats := &reference_stats.ReferenceStats{Mean: 0.5, Std: 1.0, Min: 0.0, Max: 1.0}
 	err := cache.Store(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"}, stats)
@@ -211,7 +211,7 @@ func TestRepositoryCache_GetReferenceStats(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	// Create ancestry object for testing
@@ -232,7 +232,7 @@ func TestRepositoryCache_GetReferenceStats_WithGenderedAncestry(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	// Test with gendered ancestry to ensure correct code generation
@@ -256,7 +256,7 @@ func TestRepositoryCache_GetReferenceStats_CacheKeyGeneration(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	// Test different ancestry gender combinations
@@ -330,7 +330,7 @@ func TestRepositoryCache_GetBatch_MultipleCacheHits(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	requests := []StatsRequest{
@@ -361,7 +361,7 @@ func TestRepositoryCache_GetBatch_CacheMisses(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	requests := []StatsRequest{
@@ -380,7 +380,7 @@ func TestRepositoryCache_GetBatch_EmptyRequests(t *testing.T) {
 	repo := &mockRepo{}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	results, err := cache.GetBatch(context.Background(), []StatsRequest{})
@@ -411,7 +411,7 @@ func TestRepositoryCache_GetBatch_MixedResults(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	requests := []StatsRequest{
@@ -435,7 +435,7 @@ func TestRepositoryCache_GetBatch_QueryError(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	requests := []StatsRequest{
@@ -467,7 +467,7 @@ func TestRepositoryCache_GetBatch_InvalidStats(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	requests := []StatsRequest{
@@ -480,7 +480,7 @@ func TestRepositoryCache_GetBatch_InvalidStats(t *testing.T) {
 }
 
 func TestRepositoryCache_StoreBatch_ValidEntries(t *testing.T) {
-	config.SetForTest(CacheBatchSizeKey, 100)
+	config.SetForTest(BatchSizeKey, 100)
 	defer config.ResetForTest()
 
 	insertCount := 0
@@ -493,7 +493,7 @@ func TestRepositoryCache_StoreBatch_ValidEntries(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	entries := []CacheEntry{
@@ -518,7 +518,7 @@ func TestRepositoryCache_StoreBatch_EmptyEntries(t *testing.T) {
 	repo := &mockRepo{}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	err := cache.StoreBatch(context.Background(), []CacheEntry{})
@@ -538,7 +538,7 @@ func TestRepositoryCache_StoreBatch_SingleBatch(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	entries := []CacheEntry{
@@ -558,7 +558,7 @@ func TestRepositoryCache_StoreBatch_SingleBatch(t *testing.T) {
 }
 
 func TestRepositoryCache_StoreBatch_BatchSizeLimit(t *testing.T) {
-	config.SetForTest(CacheBatchSizeKey, 2)
+	config.SetForTest(BatchSizeKey, 2)
 	defer config.ResetForTest()
 
 	insertCount := 0
@@ -571,7 +571,7 @@ func TestRepositoryCache_StoreBatch_BatchSizeLimit(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	entries := []CacheEntry{
@@ -604,7 +604,7 @@ func TestRepositoryCache_StoreBatch_InvalidStats(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	entries := []CacheEntry{
@@ -628,7 +628,7 @@ func TestRepositoryCache_StoreBatch_InsertError(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	entries := []CacheEntry{
@@ -643,7 +643,7 @@ func TestRepositoryCache_StoreBatch_InsertError(t *testing.T) {
 }
 
 func TestRepositoryCache_StoreBatch_PartialBatchFailure(t *testing.T) {
-	config.SetForTest(CacheBatchSizeKey, 2)
+	config.SetForTest(BatchSizeKey, 2)
 	defer config.ResetForTest()
 
 	insertCount := 0
@@ -658,7 +658,7 @@ func TestRepositoryCache_StoreBatch_PartialBatchFailure(t *testing.T) {
 	}
 	cache := &RepositoryCache{
 		Repo:    repo,
-		TableID: config.GetString(TableIDKey),
+		TableID: config.GetString(config.TableCacheTableKey),
 	}
 
 	entries := []CacheEntry{

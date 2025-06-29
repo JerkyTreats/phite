@@ -17,11 +17,12 @@ import (
 // Client encapsulates config, connection, and query logic for reference stats in BigQuery.
 
 func init() {
-	config.RegisterRequiredKey("bq_project")         // Project where the data resides
-	config.RegisterRequiredKey("bq_billing_project") // Project used for API calls and billing
-	config.RegisterRequiredKey("bq_dataset")
-	config.RegisterRequiredKey("bq_table")
-	// bq_credentials is optional
+	// BigQuery client uses infrastructure constants for shared GCP resources
+	config.RegisterRequiredKey(config.GCPDataProjectKey)        // Project where the data resides
+	config.RegisterRequiredKey(config.GCPBillingProjectKey)     // Project used for API calls and billing
+	config.RegisterRequiredKey(config.BigQueryGnomadDatasetKey) // Dataset reference
+	// Note: Table references are now handled by infrastructure constants (config.Table*)
+	// bq_credentials remains optional (no constant needed)
 }
 
 type BQClient struct {
@@ -33,14 +34,14 @@ type BQClient struct {
 	Config    *dbconfig.BigQueryConfig
 }
 
-// NewClient initializes a BigQuery client using config.go.
+// NewClient initializes a BigQuery client using infrastructure configuration.
 func NewClient(ctx context.Context) (*BQClient, error) {
-	billingProject := config.GetString("bq_billing_project")
-	dataProject := config.GetString("bq_project") // This is the project where the data actually lives
-	dataset := config.GetString("bq_dataset")
-	table := config.GetString("bq_table")
-	creds := config.GetString("bq_credentials")
-	// Validation for project, dataset, and table is now handled by config.Validate() in main.
+	billingProject := config.GetString(config.GCPBillingProjectKey)
+	dataProject := config.GetString(config.GCPDataProjectKey) // This is the project where the data actually lives
+	dataset := config.GetString(config.BigQueryGnomadDatasetKey)
+	table := config.GetString(config.TableAlleleFreqTableKey) // Default to allele freq table
+	creds := config.GetString("bq_credentials")               // Still using string key as this is optional
+	// Validation for project, dataset, and table is now handled by infrastructure constants
 
 	var client *bigquery.Client
 	var err error

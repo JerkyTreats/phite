@@ -9,10 +9,31 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Exported configuration keys
+// Shared infrastructure configuration keys - used across multiple domains
 const (
-	LogLevelKey = "log_level"
+	// Logging (core infrastructure)
+	LogLevelKey = "logging.level"
+
+	// GCP Project Infrastructure - addresses duplication across domains
+	GCPDataProjectKey    = "gcp.data_project"    // Where data lives (e.g., bigquery-public-data)
+	GCPBillingProjectKey = "gcp.billing_project" // User's project for query billing (required for public datasets)
+	GCPCacheProjectKey   = "gcp.cache_project"   // Where user stores private cache tables
+
+	// BigQuery Dataset Infrastructure - shared across repositories
+	BigQueryGnomadDatasetKey = "bigquery.gnomad_dataset" // gnomAD dataset name
+	BigQueryCacheDatasetKey  = "bigquery.cache_dataset"  // Cache dataset name
+
+	// Table Infrastructure - shared table references
+	TableCacheTableKey      = "tables.cache_table"       // Reference stats cache table
+	TableModelTableKey      = "tables.model_table"       // PRS model table
+	TableAlleleFreqTableKey = "tables.allele_freq_table" // Allele frequency table
 )
+
+// NOTE: Domain-specific configuration constants are defined in their respective packages:
+// - ancestry.PopulationKey, ancestry.GenderKey -> internal/ancestry/config.go
+// - invariance.EnableValidationKey, invariance.StrictModeKey -> internal/invariance/invariance.go
+// - cache.BatchSizeKey -> internal/reference/cache/cache.go
+// This maintains domain ownership while eliminating infrastructure duplication.
 
 var (
 	config            *viper.Viper

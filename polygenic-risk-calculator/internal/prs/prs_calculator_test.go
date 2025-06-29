@@ -23,8 +23,8 @@ func floatsAlmostEqual(a, b float64) bool {
 // setupTestConfig sets up test configuration for PRS calculator tests
 func setupTestConfig(enableValidation bool, strictMode bool) {
 	config.ResetForTest()
-	config.SetForTest(invariance.EnableInvarianceValidationKey, enableValidation)
-	config.SetForTest(invariance.StrictValidationModeKey, strictMode)
+	config.SetForTest(invariance.EnableValidationKey, enableValidation)
+	config.SetForTest(invariance.StrictModeKey, strictMode)
 }
 
 func TestCalculatePRS_BasicSum(t *testing.T) {

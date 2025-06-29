@@ -6,6 +6,12 @@ import (
 	"phite.io/polygenic-risk-calculator/internal/config"
 )
 
+// Domain-specific configuration keys for ancestry
+const (
+	PopulationKey = "ancestry.population" // Population code (EUR, AFR, EAS, etc.)
+	GenderKey     = "ancestry.gender"     // Gender filter (optional)
+)
+
 // ancestryInfo holds the mapping information for each ancestry/gender combination
 type ancestryInfo struct {
 	precedence  []string // Column precedence order for frequency selection
@@ -14,11 +20,11 @@ type ancestryInfo struct {
 
 // NewFromConfig creates a new Ancestry object from configuration values
 func NewFromConfig() (*Ancestry, error) {
-	population := config.GetString("ancestry.population")
-	gender := config.GetString("ancestry.gender") // defaults to ""
+	population := config.GetString(PopulationKey)
+	gender := config.GetString(GenderKey) // defaults to ""
 
 	if population == "" {
-		return nil, fmt.Errorf("ancestry.population is required in configuration")
+		return nil, fmt.Errorf("%s is required in configuration", PopulationKey)
 	}
 
 	if !IsSupported(population, gender) {
@@ -73,6 +79,6 @@ func getBuiltinMappings() map[string]ancestryInfo {
 // init registers the required configuration keys
 func init() {
 	// Register configuration keys with the config system
-	config.RegisterRequiredKey("ancestry.population")
+	config.RegisterRequiredKey(PopulationKey)
 	// Note: ancestry.gender is optional and defaults to empty string if not provided
 }

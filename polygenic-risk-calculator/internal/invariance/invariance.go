@@ -7,23 +7,23 @@ import (
 	"phite.io/polygenic-risk-calculator/internal/config"
 )
 
-// Configuration keys for invariance validation
+// Domain-specific configuration keys for invariance validation
 const (
-	// EnableInvarianceValidationKey controls whether to enable runtime invariance validation
-	EnableInvarianceValidationKey = "invariance.enable_validation"
-	// StrictValidationModeKey enables strict validation mode with additional checks
-	StrictValidationModeKey = "invariance.strict_mode"
+	// EnableValidationKey controls whether to enable runtime invariance validation
+	EnableValidationKey = "invariance.enable_validation"
+	// StrictModeKey enables strict validation mode with additional checks
+	StrictModeKey = "invariance.strict_mode"
 )
 
 // init registers required configuration keys
 func init() {
 	// Set reasonable defaults for invariance validation
 	// Production systems should override these in their config files
-	if !config.HasKey(EnableInvarianceValidationKey) {
+	if !config.HasKey(EnableValidationKey) {
 		// Default to enabled for safety in development, production configs should set explicitly
-		config.RegisterRequiredKey(EnableInvarianceValidationKey)
+		config.RegisterRequiredKey(EnableValidationKey)
 	}
-	if !config.HasKey(StrictValidationModeKey) {
+	if !config.HasKey(StrictModeKey) {
 		// Default to disabled for performance
 		// Production configs can enable for critical validation scenarios
 	}
@@ -31,12 +31,12 @@ func init() {
 
 // IsValidationEnabled returns whether invariance validation is currently enabled
 func IsValidationEnabled() bool {
-	return config.GetBool(EnableInvarianceValidationKey)
+	return config.GetBool(EnableValidationKey)
 }
 
 // IsStrictModeEnabled returns whether strict validation mode is currently enabled
 func IsStrictModeEnabled() bool {
-	return config.GetBool(StrictValidationModeKey)
+	return config.GetBool(StrictModeKey)
 }
 
 // InvariantViolationError represents a violation of a mathematical or statistical invariant

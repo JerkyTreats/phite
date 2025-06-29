@@ -34,17 +34,15 @@ type ReferenceStatsRequest struct {
 }
 
 func init() {
-	// Register required configuration keys for reference service
-	config.RegisterRequiredKey("reference.model_table")
-	config.RegisterRequiredKey("reference.allele_freq_table")
-	config.RegisterRequiredKey("reference.column_mapping")
+	// Register required infrastructure constants for reference service
+	config.RegisterRequiredKey(config.TableModelTableKey)      // Model table reference
+	config.RegisterRequiredKey(config.TableAlleleFreqTableKey) // Allele frequency table reference
+	config.RegisterRequiredKey(config.GCPBillingProjectKey)    // User's billing project for gnomAD queries
+	config.RegisterRequiredKey(config.GCPCacheProjectKey)      // Cache storage project
+	config.RegisterRequiredKey(config.BigQueryCacheDatasetKey) // Cache dataset name
 
-	// User GCP configuration for billing
-	config.RegisterRequiredKey("user.gcp_project") // For billing project
-
-	// Cache configuration for user's private BigQuery dataset
-	config.RegisterRequiredKey("cache.gcp_project") // Cache storage project
-	config.RegisterRequiredKey("cache.dataset")     // Cache dataset name
+	// Domain-specific configuration with fallback (column mapping could be domain-specific)
+	// Note: Column mapping would be domain-specific if different services use different schemas
 }
 
 // NewReferenceService creates a new reference service with dependency injection
@@ -55,9 +53,9 @@ func NewReferenceService(gnomadDB dbinterface.Repository, ReferenceCache referen
 	// Create gnomAD repository if not provided
 	if gnomadDB == nil {
 		gnomadDB, err = db.GetRepository(context.Background(), "bq", map[string]string{
-			"project_id":      "bigquery-public-data",
-			"dataset_id":      "gnomad",
-			"billing_project": config.GetString("user.gcp_project"),
+			"project_id":      config.GetString(config.GCPDataProjectKey),        // gnomAD data project
+			"dataset_id":      config.GetString(config.BigQueryGnomadDatasetKey), // gnomAD dataset
+			"billing_project": config.GetString(config.GCPBillingProjectKey),     // User's billing project
 		})
 		if err != nil {
 			logging.Error("Failed to create gnomAD repository: %v", err)
@@ -68,9 +66,9 @@ func NewReferenceService(gnomadDB dbinterface.Repository, ReferenceCache referen
 	// Create cache if not provided
 	if ReferenceCache == nil {
 		cacheParams := map[string]string{
-			"project_id":      config.GetString("cache.gcp_project"),
-			"dataset_id":      config.GetString("cache.dataset"),
-			"billing_project": config.GetString("user.gcp_project"),
+			"project_id":      config.GetString(config.GCPCacheProjectKey),      // Cache storage project
+			"dataset_id":      config.GetString(config.BigQueryCacheDatasetKey), // Cache dataset
+			"billing_project": config.GetString(config.GCPBillingProjectKey),    // User's billing project
 		}
 		ReferenceCache, err = reference_cache.NewRepositoryCache(nil, cacheParams)
 		if err != nil {
@@ -82,9 +80,9 @@ func NewReferenceService(gnomadDB dbinterface.Repository, ReferenceCache referen
 	return &ReferenceService{
 		gnomadDB:        gnomadDB,
 		ReferenceCache:  ReferenceCache,
-		modelTable:      config.GetString("reference.model_table"),
-		alleleFreqTable: config.GetString("reference.allele_freq_table"),
-		columnMapping:   config.GetStringMapString("reference.column_mapping"),
+		modelTable:      config.GetString(config.TableModelTableKey),
+		alleleFreqTable: config.GetString(config.TableAlleleFreqTableKey),
+		columnMapping:   config.GetStringMapString("reference.column_mapping"), // Domain-specific for now
 	}, nil
 }
 

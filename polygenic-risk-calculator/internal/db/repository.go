@@ -11,13 +11,12 @@ import (
 )
 
 func init() {
-	// Register required configuration keys
-	config.RegisterRequiredKey("db.type")
-	config.RegisterRequiredKey("db.path")       // For DuckDB fallback
-	config.RegisterRequiredKey("db.project_id") // For BigQuery fallback
+	// Register required infrastructure configuration keys for repository creation
+	config.RegisterRequiredKey(config.GCPDataProjectKey)        // For BigQuery data project
+	config.RegisterRequiredKey(config.GCPBillingProjectKey)     // For BigQuery billing project
+	config.RegisterRequiredKey(config.BigQueryGnomadDatasetKey) // For BigQuery dataset fallback
 
-	// BigQuery-specific keys used as fallbacks
-	config.RegisterRequiredKey("bigquery.dataset_id") // For BigQuery dataset fallback
+	// Note: DuckDB fallback path would be domain-specific if implemented
 }
 
 // RepositoryConstructor is a function type for creating new repository instances
@@ -56,13 +55,10 @@ func GetRepository(ctx context.Context, dbType string, params ...map[string]stri
 
 // newDuckDBRepository creates a new DuckDB repository instance
 func newDuckDBRepository(ctx context.Context, params map[string]string) (dbinterface.Repository, error) {
-	// Use params if provided, otherwise fall back to config
+	// DuckDB requires explicit path parameter (no fallback config)
 	path := params["path"]
 	if path == "" {
-		path = config.GetString("db.path")
-	}
-	if path == "" {
-		return nil, fmt.Errorf("path is required for DuckDB repository")
+		return nil, fmt.Errorf("path parameter is required for DuckDB repository")
 	}
 	db, err := duckdb.OpenDB(path)
 	if err != nil {
@@ -73,25 +69,29 @@ func newDuckDBRepository(ctx context.Context, params map[string]string) (dbinter
 
 // newBQRepository creates a new BigQuery repository instance
 func newBQRepository(ctx context.Context, params map[string]string) (dbinterface.Repository, error) {
-	// Use params if provided, otherwise fall back to config
-	projectID := params["project_id"]
-	if projectID == "" {
-		projectID = config.GetString("db.project_id")
+	// Use params if provided, otherwise fall back to infrastructure config
+	dataProjectID := params["project_id"]
+	if dataProjectID == "" {
+		dataProjectID = config.GetString(config.GCPDataProjectKey)
 	}
-	if projectID == "" {
-		return nil, fmt.Errorf("project_id is required for BigQuery repository")
+	if dataProjectID == "" {
+		return nil, fmt.Errorf("data project_id is required for BigQuery repository")
 	}
 
-	// Extract other BQ-specific parameters
+	// Extract BigQuery dataset
 	datasetID := params["dataset_id"]
 	if datasetID == "" {
-		datasetID = config.GetString("bigquery.dataset_id")
+		datasetID = config.GetString(config.BigQueryGnomadDatasetKey)
 	}
 
+	// Extract billing project (required for public dataset queries)
 	billingProject := params["billing_project"]
 	if billingProject == "" {
-		billingProject = projectID // Default to same project
+		billingProject = config.GetString(config.GCPBillingProjectKey)
+	}
+	if billingProject == "" {
+		return nil, fmt.Errorf("billing project is required for BigQuery repository")
 	}
 
-	return bq.NewRepository(projectID, datasetID, billingProject)
+	return bq.NewRepository(dataProjectID, datasetID, billingProject)
 }
