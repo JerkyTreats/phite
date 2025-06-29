@@ -54,34 +54,54 @@ type Cache interface {
 
 // RepositoryCache implements both Cache and ReferenceStatsBackend using DBRepository.
 type RepositoryCache struct {
-	Repo    dbinterface.Repository
-	TableID string
+	Repo      dbinterface.Repository
+	TableID   string
+	datasetID string // Add dataset ID to build fully qualified table names
 }
 
 // NewRepositoryCache creates a new cache with dependency injection
 // If repo is nil, it will be created using provided params or default configuration
 func NewRepositoryCache(repo dbinterface.Repository, params ...map[string]string) (*RepositoryCache, error) {
 	var err error
+	var datasetID string
 
 	// Create repository if not provided
 	if repo == nil {
 		if len(params) > 0 && params[0] != nil {
 			// Use provided parameters
 			repo, err = db.GetRepository(context.Background(), "bq", params[0])
+			datasetID = params[0]["dataset_id"] // Capture dataset ID from params
 		} else {
 			// Use default configuration
 			repo, err = db.GetRepository(context.Background(), "bq")
+			datasetID = config.GetString(config.BigQueryCacheDatasetKey) // Use config fallback
 		}
 		if err != nil {
 			logging.Error("Failed to create RepositoryCache: %v", err)
 			return nil, fmt.Errorf("failed to create RepositoryCache: %w", err)
 		}
+	} else {
+		// If repository is provided, try to get dataset from params or config
+		if len(params) > 0 && params[0] != nil && params[0]["dataset_id"] != "" {
+			datasetID = params[0]["dataset_id"]
+		} else {
+			datasetID = config.GetString(config.BigQueryCacheDatasetKey)
+		}
 	}
 
 	return &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
+		Repo:      repo,
+		TableID:   config.GetString(config.TableCacheTableKey),
+		datasetID: datasetID,
 	}, nil
+}
+
+// getFullyQualifiedTableName returns the properly qualified table name
+func (c *RepositoryCache) getFullyQualifiedTableName() string {
+	if c.datasetID != "" {
+		return fmt.Sprintf("%s.%s", c.datasetID, c.TableID)
+	}
+	return c.TableID
 }
 
 // GetReferenceStats implements ReferenceStatsBackend interface with ancestry objects.
@@ -97,9 +117,10 @@ func (c *RepositoryCache) GetReferenceStats(ctx context.Context, ancestry *ances
 
 // Get retrieves reference statistics from the repository.
 func (c *RepositoryCache) Get(ctx context.Context, req StatsRequest) (*reference_stats.ReferenceStats, error) {
+	fullyQualifiedTable := c.getFullyQualifiedTableName()
 	queryString := fmt.Sprintf(
 		"SELECT mean, std, min, max, ancestry, trait, model FROM %s WHERE ancestry = ? AND trait = ? AND model = ? LIMIT 1",
-		c.TableID,
+		fullyQualifiedTable,
 	)
 
 	logging.Debug("Executing cache query: %s with params: ancestry=%s, trait=%s, modelID=%s",
@@ -153,9 +174,10 @@ func (c *RepositoryCache) GetBatch(ctx context.Context, reqs []StatsRequest) (ma
 		args = append(args, req.Ancestry, req.Trait, req.ModelID)
 	}
 
+	fullyQualifiedTable := c.getFullyQualifiedTableName()
 	queryString := fmt.Sprintf(
 		"SELECT mean, std, min, max, ancestry, trait, model FROM %s WHERE %s",
-		c.TableID,
+		fullyQualifiedTable,
 		strings.Join(conditions, " OR "),
 	)
 
