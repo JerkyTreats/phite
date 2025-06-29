@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"phite.io/polygenic-risk-calculator/internal/config"
 	"go.uber.org/zap"
+	"phite.io/polygenic-risk-calculator/internal/config"
 )
 
 var (
@@ -20,7 +20,7 @@ var (
 // getZapLevel maps config log_level string to zapcore.Level.
 // Supports 'NONE' to silence all logs (for testing).
 func getZapLevel() zap.AtomicLevel {
-	levelStr := strings.ToUpper(config.GetString("log_level"))
+	levelStr := strings.ToUpper(config.GetString("logging.level"))
 	switch levelStr {
 	case "DEBUG":
 		return zap.NewAtomicLevelAt(zap.DebugLevel)

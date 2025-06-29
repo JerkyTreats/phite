@@ -28,7 +28,7 @@ func TestSetConfigPath(t *testing.T) {
 	// Create a temporary config file
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "config.json")
-	configContent := `{"log_level": "DEBUG"}`
+	configContent := `{"logging.level": "DEBUG"}`
 	err := os.WriteFile(configFile, []byte(configContent), 0644)
 	assert.NoError(t, err)
 

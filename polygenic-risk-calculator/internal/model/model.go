@@ -53,6 +53,8 @@ type Variant struct {
 	ID           string   // Variant identifier (e.g., rsID or chr:pos:ref:alt)
 	Chromosome   string   // Chromosome
 	Position     int64    // Position
+	Ref          string   // Reference allele
+	Alt          string   // Alternative allele
 	EffectAllele string   // The allele associated with the effect weight
 	OtherAllele  string   // The non-effect allele
 	EffectWeight float64  // The weight or beta score of the effect allele

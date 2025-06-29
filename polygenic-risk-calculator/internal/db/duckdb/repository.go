@@ -22,7 +22,7 @@ func NewRepository(db *sql.DB) dbinterface.Repository {
 
 // Query executes a SQL query and returns the results as a slice of maps
 func (r *Repository) Query(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-	logging.Debug("Executing DuckDB query: %s", query)
+	logging.Debug("Executing DuckDB query with %d args: %s", len(args), query)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {

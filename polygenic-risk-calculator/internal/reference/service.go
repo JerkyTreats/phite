@@ -20,17 +20,16 @@ import (
 // ReferenceService handles loading PRS models and allele frequencies using the repository pattern
 type ReferenceService struct {
 	gnomadDB        dbinterface.Repository
+	modelDB         dbinterface.Repository
 	ReferenceCache  reference_cache.Cache
 	modelTable      string
 	alleleFreqTable string
-	columnMapping   map[string]string
 }
 
 // ReferenceStatsRequest represents a request for reference statistics computation
 type ReferenceStatsRequest struct {
 	Ancestry *ancestry.Ancestry
 	Trait    string
-	ModelID  string
 }
 
 func init() {
@@ -40,14 +39,11 @@ func init() {
 	config.RegisterRequiredKey(config.GCPBillingProjectKey)    // User's billing project for gnomAD queries
 	config.RegisterRequiredKey(config.GCPCacheProjectKey)      // Cache storage project
 	config.RegisterRequiredKey(config.BigQueryCacheDatasetKey) // Cache dataset name
-
-	// Domain-specific configuration with fallback (column mapping could be domain-specific)
-	// Note: Column mapping would be domain-specific if different services use different schemas
 }
 
 // NewReferenceService creates a new reference service with dependency injection
 // If gnomadDB or ReferenceCache are nil, they will be created using default configuration
-func NewReferenceService(gnomadDB dbinterface.Repository, ReferenceCache reference_cache.Cache) (*ReferenceService, error) {
+func NewReferenceService(gnomadDB, modelDB dbinterface.Repository, ReferenceCache reference_cache.Cache) (*ReferenceService, error) {
 	var err error
 
 	// Create gnomAD repository if not provided
@@ -60,6 +56,15 @@ func NewReferenceService(gnomadDB dbinterface.Repository, ReferenceCache referen
 		if err != nil {
 			logging.Error("Failed to create gnomAD repository: %v", err)
 			return nil, fmt.Errorf("failed to create gnomAD repository: %w", err)
+		}
+	}
+
+	// Create model repository if not provided
+	if modelDB == nil {
+		modelDB, err = db.GetRepository(context.Background(), "duckdb", map[string]string{"path": config.GetString("gwas_db_path")})
+		if err != nil {
+			logging.Error("Failed to create model repository: %v", err)
+			return nil, fmt.Errorf("failed to create model repository: %w", err)
 		}
 	}
 
@@ -79,29 +84,28 @@ func NewReferenceService(gnomadDB dbinterface.Repository, ReferenceCache referen
 
 	return &ReferenceService{
 		gnomadDB:        gnomadDB,
+		modelDB:         modelDB,
 		ReferenceCache:  ReferenceCache,
 		modelTable:      config.GetString(config.TableModelTableKey),
 		alleleFreqTable: config.GetString(config.TableAlleleFreqTableKey),
-		columnMapping:   config.GetStringMapString("reference.column_mapping"), // Domain-specific for now
 	}, nil
 }
 
-// LoadModel loads a PRS model from the configured table
-func (s *ReferenceService) LoadModel(ctx context.Context, modelID string) (*model.PRSModel, error) {
+// LoadModel loads a PRS model from the configured table for a specific trait
+func (s *ReferenceService) LoadModel(ctx context.Context, trait string) (*model.PRSModel, error) {
 	query := fmt.Sprintf(
-		"SELECT * FROM %s WHERE %s = ?",
+		"SELECT * FROM %s WHERE trait = ?",
 		s.modelTable,
-		s.columnMapping["model_id"],
 	)
 
-	logging.Info("Loading PRS model: %s", modelID)
-	rows, err := s.gnomadDB.Query(ctx, query, modelID)
+	logging.Info("Loading PRS model for trait: %s", trait)
+	rows, err := s.modelDB.Query(ctx, query, trait)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query model: %w", err)
+		return nil, fmt.Errorf("failed to query model for trait %s: %w", trait, err)
 	}
 
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("no variants found for model: %s", modelID)
+		return nil, fmt.Errorf("no variants found for trait: %s", trait)
 	}
 
 	var variants []model.Variant
@@ -114,7 +118,7 @@ func (s *ReferenceService) LoadModel(ctx context.Context, modelID string) (*mode
 	}
 
 	prsModel := &model.PRSModel{
-		ID:       modelID,
+		ID:       trait, // Use trait as the model identifier
 		Variants: variants,
 	}
 
@@ -155,13 +159,17 @@ func (s *ReferenceService) GetAlleleFrequenciesForTraits(ctx context.Context, tr
 	var filters []string
 	var args []interface{}
 	for _, v := range uniqueVariants {
-		chrom, pos, ref, alt, err := model.ParseVariantID(v.ID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid variant ID %s: %w", v.ID, err)
+		if v.Chromosome == "" || v.Position == 0 || v.Ref == "" || v.Alt == "" {
+			logging.Warn("cannot build filter for variant %s, missing chrom/pos/ref/alt", v.ID)
+			continue
 		}
-
 		filters = append(filters, "(chrom = ? AND pos = ? AND ref = ? AND alt = ?)")
-		args = append(args, chrom, pos, ref, alt)
+		args = append(args, v.Chromosome, v.Position, v.Ref, v.Alt)
+	}
+
+	if len(filters) == 0 {
+		logging.Info("No variants with sufficient information for allele frequency lookup")
+		return map[string]map[string]float64{}, nil
 	}
 
 	// Build and execute single consolidated query for all variants
@@ -223,183 +231,182 @@ func (s *ReferenceService) GetAlleleFrequenciesForTraits(ctx context.Context, tr
 // convertRowToVariant converts a database row to a Variant
 func (s *ReferenceService) convertRowToVariant(row map[string]interface{}) (model.Variant, error) {
 	// Required fields
-	id := utils.ToString(row[s.columnMapping["id"]])
-	if id == "" {
-		return model.Variant{}, fmt.Errorf("missing or invalid ID")
-	}
+	rsid := utils.ToString(row["rsid"])
 
-	effectWeight := utils.ToFloat64(row[s.columnMapping["effect_weight"]])
+	effectWeight := utils.ToFloat64(row["beta"])
 	if effectWeight == 0 {
+		// This check can be problematic if an effect weight is genuinely 0.
+		// For now, we assume it indicates a missing value.
 		return model.Variant{}, fmt.Errorf("missing or invalid effect weight")
 	}
 
-	effectAllele := utils.ToString(row[s.columnMapping["effect_allele"]])
+	effectAllele := utils.ToString(row["risk_allele"])
 	if effectAllele == "" {
 		return model.Variant{}, fmt.Errorf("missing or invalid effect allele")
 	}
 
 	// Optional fields
-	otherAllele := utils.ToString(row[s.columnMapping["other_allele"]])
-
+	otherAllele := utils.ToString(row["other_allele"])
 	var effectFreq *float64
-	if val := utils.ToFloat64(row[s.columnMapping["effect_freq"]]); val != 0 {
+	if val := utils.ToFloat64(row["risk_allele_freq"]); val != 0 {
 		effectFreq = &val
 	}
 
-	// Parse variant ID to get chromosome and position
-	chrom, pos, _, _, err := model.ParseVariantID(id)
-	if err != nil {
-		return model.Variant{}, fmt.Errorf("invalid variant ID: %w", err)
+	// Get components for variant ID
+	chrom := utils.ToString(row["chr"])
+	pos := utils.ToInt64(row["chr_pos"])
+	ref := utils.ToString(row["ref"])
+	alt := utils.ToString(row["alt"])
+
+	if chrom == "" || pos == 0 {
+		return model.Variant{}, fmt.Errorf("missing chromosome or position for rsid %s", rsid)
 	}
 
-	return model.Variant{
-		ID:           id,
+	// If ref or alt are missing, we cannot form a fully qualified variant ID for gnomAD lookup.
+	// For now, we allow this and will use the rsid as the ID, but this may fail in downstream functions.
+	variantID := rsid
+	if ref != "" && alt != "" {
+		variantID = model.FormatVariantID(chrom, pos, ref, alt)
+	}
+
+	// To handle duplicate variants from different studies, append study_id to the variant ID.
+	studyID := utils.ToString(row["study_id"])
+	if studyID != "" {
+		variantID = fmt.Sprintf("%s_%s", variantID, studyID)
+	}
+
+	variant := model.Variant{
+		ID:           variantID,
 		Chromosome:   chrom,
 		Position:     pos,
+		Ref:          ref,
+		Alt:          alt,
+		EffectWeight: effectWeight,
 		EffectAllele: effectAllele,
 		OtherAllele:  otherAllele,
-		EffectWeight: effectWeight,
 		EffectFreq:   effectFreq,
-	}, nil
+	}
+
+	if rsid != "" {
+		variant.RSID = &rsid
+	}
+
+	return variant, nil
 }
 
-// GetReferenceStatsBatch computes reference statistics for multiple traits in a single bulk operation
-// This method optimizes costs by loading the model once and computing all stats together
+// GetReferenceStatsBatch retrieves reference statistics for multiple traits in a single operation.
+// This method optimizes costs by loading all required models, and then making a single
+// consolidated query to get allele frequencies for all variants across all models.
 func (s *ReferenceService) GetReferenceStatsBatch(ctx context.Context, requests []ReferenceStatsRequest) (map[string]*reference_stats.ReferenceStats, error) {
+	logging.Info("Getting reference stats in batch for %d traits", len(requests))
+
 	if len(requests) == 0 {
 		return make(map[string]*reference_stats.ReferenceStats), nil
 	}
 
-	// Validate that all requests use the same model (current assumption)
-	modelID := requests[0].ModelID
-	for _, req := range requests[1:] {
-		if req.ModelID != modelID {
-			return nil, fmt.Errorf("all requests must use the same model ID, got %s and %s", modelID, req.ModelID)
-		}
-	}
+	ancestryObj := requests[0].Ancestry
+	traitModels := make(map[string]*model.PRSModel)
+	allTraitVariants := make(map[string][]model.Variant)
 
-	logging.Info("Computing reference stats in batch for %d traits using model %s", len(requests), modelID)
-
-	// Load the PRS model once for all traits
-	prsModel, err := s.LoadModel(ctx, modelID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load PRS model for batch computation: %w", err)
-	}
-
-	// Group requests by ancestry for efficient processing
-	ancestryGroups := make(map[string][]ReferenceStatsRequest)
+	// Step 1: Load the model for each trait and collect all variants.
 	for _, req := range requests {
-		ancestryCode := req.Ancestry.Code()
-		ancestryGroups[ancestryCode] = append(ancestryGroups[ancestryCode], req)
-	}
-
-	results := make(map[string]*reference_stats.ReferenceStats)
-	effectSizes := prsModel.GetEffectSizes()
-
-	// Process each ancestry group separately
-	for ancestryCode, ancestryRequests := range ancestryGroups {
-		logging.Info("Processing %d traits for ancestry %s", len(ancestryRequests), ancestryCode)
-
-		// Build trait variants map for this ancestry
-		traitVariants := make(map[string][]model.Variant)
-		for _, req := range ancestryRequests {
-			traitVariants[req.Trait] = prsModel.Variants
+		if _, ok := traitModels[req.Trait]; ok {
+			continue // Already loaded this model
 		}
-
-		// Single bulk query for all variant frequencies for this ancestry
-		bulkFreqs, err := s.GetAlleleFrequenciesForTraits(ctx, traitVariants, ancestryRequests[0].Ancestry)
+		prsModel, err := s.LoadModel(ctx, req.Trait)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get bulk allele frequencies for ancestry %s: %w", ancestryCode, err)
+			return nil, fmt.Errorf("failed to load PRS model for trait %s: %w", req.Trait, err)
 		}
-
-		// Compute stats for each trait in this ancestry group
-		for _, req := range ancestryRequests {
-			traitFreqs := bulkFreqs[req.Trait]
-
-			// Compute statistics for this trait
-			stats, err := reference_stats.Compute(traitFreqs, effectSizes)
-			if err != nil {
-				return nil, fmt.Errorf("failed to compute reference stats for trait %s: %w", req.Trait, err)
-			}
-
-			// Add metadata
-			stats.Ancestry = ancestryCode
-			stats.Trait = req.Trait
-			stats.Model = req.ModelID
-
-			// Use ancestry|trait|model as key for results
-			key := fmt.Sprintf("%s|%s|%s", ancestryCode, req.Trait, req.ModelID)
-			results[key] = stats
-
-			logging.Debug("Computed reference stats for trait %s, ancestry %s: mean=%.4f, std=%.4f",
-				req.Trait, ancestryCode, stats.Mean, stats.Std)
-		}
+		traitModels[req.Trait] = prsModel
+		allTraitVariants[req.Trait] = prsModel.Variants
 	}
 
-	logging.Info("Successfully computed reference stats for %d traits across %d ancestry groups",
-		len(results), len(ancestryGroups))
+	// Step 2: Get allele frequencies for all variants across all models in a single bulk query.
+	alleleFrequencies, err := s.GetAlleleFrequenciesForTraits(ctx, allTraitVariants, ancestryObj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get allele frequencies: %w", err)
+	}
+
+	// Step 3: Compute stats for each trait using its specific model and frequencies.
+	results := make(map[string]*reference_stats.ReferenceStats)
+	for _, req := range requests {
+		prsModel := traitModels[req.Trait]
+		traitFreqs := alleleFrequencies[req.Trait]
+
+		stats, err := reference_stats.Compute(traitFreqs, prsModel.GetEffectSizes())
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute stats for trait %s: %w", req.Trait, err)
+		}
+
+		stats.Ancestry = ancestryObj.Code()
+		stats.Trait = req.Trait
+		stats.Model = req.Trait // The model is identified by the trait
+
+		key := fmt.Sprintf("%s|%s|%s", stats.Ancestry, stats.Trait, stats.Model)
+		results[key] = stats
+	}
+
+	logging.Info("Successfully computed reference stats for %d traits in batch", len(results))
 	return results, nil
 }
 
 // GetReferenceStats retrieves PRS reference statistics for a given ancestry, trait, and model ID.
 // It first attempts to fetch from the cache, then falls back to on-the-fly computation if needed.
-func (s *ReferenceService) GetReferenceStats(ctx context.Context, ancestry *ancestry.Ancestry, trait, modelID string) (*reference_stats.ReferenceStats, error) {
+func (s *ReferenceService) GetReferenceStats(ctx context.Context, ancestry *ancestry.Ancestry, trait string) (*reference_stats.ReferenceStats, error) {
 	// Use ancestry code for cache operations
 	ancestryCode := ancestry.Code()
 
-	// Try to get from cache first
+	// Use trait as the model identifier for cache key
 	stats, err := s.ReferenceCache.Get(ctx, reference_cache.StatsRequest{
 		Ancestry: ancestryCode,
 		Trait:    trait,
-		ModelID:  modelID,
+		ModelID:  trait,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get stats from cache: %w", err)
+		// This can happen for cache misses, log and continue
+		logging.Debug("Cache miss for trait %s: %v", trait, err)
 	}
 	if stats != nil {
 		return stats, nil
 	}
 
 	// Cache miss, compute on the fly
-	return s.computeAndCacheStats(ctx, ancestry, trait, modelID)
+	return s.computeAndCacheStats(ctx, ancestry, trait)
 }
 
 // computeAndCacheStats computes PRS statistics on the fly and caches the result.
-func (s *ReferenceService) computeAndCacheStats(ctx context.Context, ancestry *ancestry.Ancestry, trait, modelID string) (*reference_stats.ReferenceStats, error) {
+func (s *ReferenceService) computeAndCacheStats(ctx context.Context, ancestry *ancestry.Ancestry, trait string) (*reference_stats.ReferenceStats, error) {
 	// Load the PRS model
-	prsModel, err := s.LoadModel(ctx, modelID)
+	prsModel, err := s.LoadModel(ctx, trait)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load PRS model: %w", err)
 	}
 
-	// Get allele frequencies using ancestry object
-	freqs, err := s.GetAlleleFrequenciesForTraits(ctx, map[string][]model.Variant{
-		trait: prsModel.Variants,
-	}, ancestry)
+	// Get allele frequencies for this model's variants
+	traitVariants := map[string][]model.Variant{trait: prsModel.Variants}
+	alleleFrequencies, err := s.GetAlleleFrequenciesForTraits(ctx, traitVariants, ancestry)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get allele frequencies: %w", err)
+		return nil, fmt.Errorf("failed to get allele frequencies for trait %s: %w", trait, err)
 	}
 
-	// Compute statistics
-	stats, err := reference_stats.Compute(freqs[trait], prsModel.GetEffectSizes())
+	// Compute stats
+	stats, err := reference_stats.Compute(alleleFrequencies[trait], prsModel.GetEffectSizes())
 	if err != nil {
-		return nil, fmt.Errorf("failed to compute PRS statistics: %w", err)
+		return nil, fmt.Errorf("failed to compute stats for trait %s: %w", trait, err)
 	}
 
-	// Add metadata using ancestry code
 	ancestryCode := ancestry.Code()
 	stats.Ancestry = ancestryCode
 	stats.Trait = trait
-	stats.Model = modelID
+	stats.Model = trait // Use trait as the model identifier
 
 	// Cache the result using ancestry code
 	if err := s.ReferenceCache.Store(ctx, reference_cache.StatsRequest{
 		Ancestry: ancestryCode,
 		Trait:    trait,
-		ModelID:  modelID,
+		ModelID:  trait,
 	}, stats); err != nil {
 		logging.Warn("Failed to cache computed stats: %v", err)
-		// Don't return error, as we still have valid stats
 	}
 
 	return stats, nil

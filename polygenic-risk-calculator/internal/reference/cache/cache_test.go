@@ -33,6 +33,9 @@ func (m *mockRepo) ValidateTable(ctx context.Context, table string, requiredColu
 }
 
 func TestMain(m *testing.M) {
+	// Set default batch size for testing
+	config.Set(BatchSizeKey, 100)
+
 	// Reset config for testing
 	config.ResetForTest()
 
@@ -60,6 +63,16 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// Helper function to create a properly configured test cache
+func newTestCache(repo *mockRepo) *RepositoryCache {
+	return &RepositoryCache{
+		Repo:      repo,
+		TableID:   "prs_stats_cache",
+		datasetID: "prs_stats_cache",
+		projectID: "jerkytreats",
+	}
+}
+
 func TestRepositoryCache_Get_CacheHit(t *testing.T) {
 	repo := &mockRepo{
 		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
@@ -76,10 +89,7 @@ func TestRepositoryCache_Get_CacheHit(t *testing.T) {
 			}, nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 	stats, err := cache.Get(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"})
 	assert.NoError(t, err)
 	assert.NotNil(t, stats)
@@ -94,10 +104,7 @@ func TestRepositoryCache_Get_CacheMiss(t *testing.T) {
 			return []map[string]interface{}{}, nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 	stats, err := cache.Get(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"})
 	assert.NoError(t, err)
 	assert.Nil(t, stats)
@@ -112,10 +119,7 @@ func TestRepositoryCache_Get_MultipleRows(t *testing.T) {
 			}, nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 	stats, err := cache.Get(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"})
 	assert.Error(t, err)
 	assert.Nil(t, stats)
@@ -129,10 +133,7 @@ func TestRepositoryCache_Get_InvalidStats(t *testing.T) {
 			}, nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 	stats, err := cache.Get(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"})
 	assert.Error(t, err)
 	assert.Nil(t, stats)
@@ -144,10 +145,7 @@ func TestRepositoryCache_Get_QueryError(t *testing.T) {
 			return nil, errors.New("db error")
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 	stats, err := cache.Get(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"})
 	assert.Error(t, err)
 	assert.Nil(t, stats)
@@ -161,10 +159,7 @@ func TestRepositoryCache_Store_Valid(t *testing.T) {
 			return nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 	stats := &reference_stats.ReferenceStats{Mean: 0.5, Std: 1.0, Min: 0.0, Max: 1.0}
 	err := cache.Store(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"}, stats)
 	assert.NoError(t, err)
@@ -177,10 +172,7 @@ func TestRepositoryCache_Store_InvalidStats(t *testing.T) {
 			return nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 	stats := &reference_stats.ReferenceStats{Mean: 0.5, Std: -1.0, Min: 0.0, Max: 1.0}
 	err := cache.Store(context.Background(), StatsRequest{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"}, stats)
 	assert.Error(t, err)
@@ -209,10 +201,7 @@ func TestRepositoryCache_GetReferenceStats(t *testing.T) {
 			return []map[string]interface{}{}, nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 
 	// Create ancestry object for testing
 	eur, err := ancestry.New("EUR", "")
@@ -230,10 +219,7 @@ func TestRepositoryCache_GetReferenceStats_WithGenderedAncestry(t *testing.T) {
 			return []map[string]interface{}{}, nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 
 	// Test with gendered ancestry to ensure correct code generation
 	eurMale, err := ancestry.New("EUR", "MALE")
@@ -328,10 +314,7 @@ func TestRepositoryCache_GetBatch_MultipleCacheHits(t *testing.T) {
 			}, nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 
 	requests := []StatsRequest{
 		{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
@@ -359,10 +342,7 @@ func TestRepositoryCache_GetBatch_CacheMisses(t *testing.T) {
 			return []map[string]interface{}{}, nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 
 	requests := []StatsRequest{
 		{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
@@ -409,10 +389,7 @@ func TestRepositoryCache_GetBatch_MixedResults(t *testing.T) {
 			}, nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 
 	requests := []StatsRequest{
 		{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
@@ -465,10 +442,7 @@ func TestRepositoryCache_GetBatch_InvalidStats(t *testing.T) {
 			}, nil
 		},
 	}
-	cache := &RepositoryCache{
-		Repo:    repo,
-		TableID: config.GetString(config.TableCacheTableKey),
-	}
+	cache := newTestCache(repo)
 
 	requests := []StatsRequest{
 		{Ancestry: "EUR", Trait: "Height", ModelID: "test_model"},
@@ -679,4 +653,90 @@ func TestRepositoryCache_StoreBatch_PartialBatchFailure(t *testing.T) {
 	err := cache.StoreBatch(context.Background(), entries)
 	assert.Error(t, err)
 	assert.Equal(t, 2, insertCount) // Should attempt both batches
+}
+
+func TestRepositoryCache_GetFullyQualifiedTableName(t *testing.T) {
+	tests := []struct {
+		name          string
+		projectID     string
+		datasetID     string
+		tableID       string
+		expected      string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name:        "Valid full qualification",
+			projectID:   "jerkytreats",
+			datasetID:   "prs_stats_cache",
+			tableID:     "prs_stats_cache",
+			expected:    "`jerkytreats`.`prs_stats_cache`.`prs_stats_cache`",
+			expectError: false,
+		},
+		{
+			name:          "Missing project ID",
+			projectID:     "", // Empty project ID
+			datasetID:     "prs_stats_cache",
+			tableID:       "prs_stats_cache",
+			expectError:   true,
+			errorContains: "project ID is required",
+		},
+		{
+			name:          "Missing dataset ID",
+			projectID:     "jerkytreats",
+			datasetID:     "", // Empty dataset ID
+			tableID:       "prs_stats_cache",
+			expectError:   true,
+			errorContains: "dataset ID is required",
+		},
+		{
+			name:          "Missing table ID",
+			projectID:     "jerkytreats",
+			datasetID:     "prs_stats_cache",
+			tableID:       "", // Empty table ID
+			expectError:   true,
+			errorContains: "table ID is required",
+		},
+		{
+			name:          "All components missing",
+			projectID:     "",
+			datasetID:     "",
+			tableID:       "",
+			expectError:   true,
+			errorContains: "project ID is required",
+		},
+		{
+			name:        "Different valid values",
+			projectID:   "my-project-123",
+			datasetID:   "test_dataset",
+			tableID:     "my_table",
+			expected:    "`my-project-123`.`test_dataset`.`my_table`",
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cache := &RepositoryCache{
+				projectID: tt.projectID,
+				datasetID: tt.datasetID,
+				TableID:   tt.tableID,
+			}
+
+			result, err := cache.GetFullyQualifiedTableName()
+
+			if tt.expectError {
+				assert.Error(t, err, "Expected error for case: %s", tt.name)
+				assert.Contains(t, err.Error(), tt.errorContains,
+					"Error should contain '%s' for case: %s", tt.errorContains, tt.name)
+				assert.Empty(t, result, "Result should be empty when error occurs")
+				t.Logf("✓ Expected error for %s: %v", tt.name, err)
+			} else {
+				assert.NoError(t, err, "Expected no error for case: %s", tt.name)
+				assert.Equal(t, tt.expected, result,
+					"Expected '%s' but got '%s' for case: %s", tt.expected, result, tt.name)
+				t.Logf("✓ Valid result for %s: %s", tt.name, result)
+			}
+		})
+	}
 }

@@ -46,19 +46,11 @@ func setupTestConfig(t *testing.T) {
 	config.Set("reference.model", "v1")
 	// Configure GWAS database path for testing
 	config.Set("gwas_db_path", "testdata/gwas.duckdb")
-	config.Set("gwas_table", "gwas_table")
+	config.Set("gwas_table", "associations_clean")
 	// Configure reference service settings
-	config.Set("reference.model_table", "reference_stats")
+	config.Set("reference.model_table", "associations_clean")
 	config.Set("reference.allele_freq_table", "allele_frequencies")
-	config.Set("reference.column_mapping", map[string]string{
-		"id":            "id",
-		"effect_weight": "effect_weight",
-		"effect_allele": "effect_allele",
-		"other_allele":  "other_allele",
-		"effect_freq":   "effect_freq",
-		"AF_afr":        "AF_afr",
-		"AF_nfe":        "AF_nfe",
-	})
+
 	// Configure GCP settings (though we might not need them for tests)
 	config.Set("user.gcp_project", "test-project")
 	config.Set("cache.gcp_project", "test-project")
@@ -74,7 +66,7 @@ func setupMockPipeline(t *testing.T) (*reference.ReferenceService, reference_cac
 	cache, err := reference_cache.NewRepositoryCache(cacheMock)
 	require.NoError(t, err)
 
-	refService, err := reference.NewReferenceService(gnomadMock, cache)
+	refService, err := reference.NewReferenceService(gnomadMock, nil, cache)
 	require.NoError(t, err)
 
 	return refService, cache, gnomadMock, cacheMock
@@ -82,61 +74,76 @@ func setupMockPipeline(t *testing.T) (*reference.ReferenceService, reference_cac
 
 // setupMockBigQueryResponses configures realistic mock responses for BigQuery operations
 func setupMockBigQueryResponses(gnomadMock, cacheMock *testutils.MockRepository) {
-	// Mock model loading responses
+	// Mock model loading responses (from associations_clean table)
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "reference_stats") {
-			// Mock PRS model data with correct genomic coordinate format
+		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
+			// Mock PRS model data from associations_clean table
 			return []map[string]interface{}{
 				{
-					"id":            "1:12345:G:A",
-					"effect_weight": 0.5,
-					"effect_allele": "A",
-					"other_allele":  "G",
-					"effect_freq":   0.3,
+					"rsid":             "rs1",
+					"risk_allele":      "A",
+					"beta":             0.2,
+					"trait":            "height",
+					"chr":              "1",
+					"chr_pos":          int64(1000),
+					"ref":              "G",
+					"alt":              "A",
+					"risk_allele_freq": 0.3,
+					"other_allele":     "G",
 				},
 				{
-					"id":            "2:67890:C:T",
-					"effect_weight": -0.2,
-					"effect_allele": "T",
-					"other_allele":  "C",
-					"effect_freq":   0.4,
+					"rsid":             "rs2",
+					"risk_allele":      "G",
+					"beta":             -0.1,
+					"trait":            "height",
+					"chr":              "1",
+					"chr_pos":          int64(2000),
+					"ref":              "A",
+					"alt":              "G",
+					"risk_allele_freq": 0.4,
+					"other_allele":     "A",
 				},
 				{
-					"id":            "3:98765:A:T",
-					"effect_weight": 0.3,
-					"effect_allele": "T",
-					"other_allele":  "A",
-					"effect_freq":   0.5,
+					"rsid":             "rs3",
+					"risk_allele":      "T",
+					"beta":             0.5,
+					"trait":            "bmi",
+					"chr":              "1",
+					"chr_pos":          int64(3000),
+					"ref":              "C",
+					"alt":              "T",
+					"risk_allele_freq": 0.25,
+					"other_allele":     "C",
 				},
 			}, nil
 		}
 
-		if strings.Contains(query, "allele_frequencies") {
-			// Mock allele frequency data with bulk OR query pattern
+		if strings.Contains(query, "gnomad_genomes_v3_1_1_hgdp_1kg") {
+			// Mock allele frequency data from gnomAD table
 			return []map[string]interface{}{
 				{
 					"chrom":  "1",
-					"pos":    int64(12345),
+					"pos":    int64(1000),
 					"ref":    "G",
 					"alt":    "A",
 					"AF_nfe": 0.3,
 					"AF_afr": 0.25,
 				},
 				{
-					"chrom":  "2",
-					"pos":    int64(67890),
-					"ref":    "C",
-					"alt":    "T",
+					"chrom":  "1",
+					"pos":    int64(2000),
+					"ref":    "A",
+					"alt":    "G",
 					"AF_nfe": 0.4,
 					"AF_afr": 0.35,
 				},
 				{
-					"chrom":  "3",
-					"pos":    int64(98765),
-					"ref":    "A",
+					"chrom":  "1",
+					"pos":    int64(3000),
+					"ref":    "C",
 					"alt":    "T",
-					"AF_nfe": 0.5,
-					"AF_afr": 0.45,
+					"AF_nfe": 0.25,
+					"AF_afr": 0.2,
 				},
 			}, nil
 		}
@@ -278,9 +285,9 @@ func TestRun_CustomAncestryConfig(t *testing.T) {
 	config.Set("reference.model", "v1")
 	// Also need to set up GWAS database configuration
 	config.Set("gwas_db_path", "testdata/gwas.duckdb")
-	config.Set("gwas_table", "gwas_table")
+	config.Set("gwas_table", "associations_clean")
 	// Configure reference service settings
-	config.Set("reference.model_table", "reference_stats")
+	config.Set("reference.model_table", "associations_clean")
 	config.Set("reference.allele_freq_table", "allele_frequencies")
 	config.Set("reference.column_mapping", map[string]string{
 		"AF_afr": "AF_afr",
@@ -492,8 +499,8 @@ func TestRun_BulkOperations_AncestryIntegration(t *testing.T) {
 	config.Set("ancestry.gender", "MALE")
 	config.Set("reference.model", "v1")
 	config.Set("gwas_db_path", "testdata/gwas.duckdb")
-	config.Set("gwas_table", "gwas_table")
-	config.Set("reference.model_table", "reference_stats")
+	config.Set("gwas_table", "associations_clean")
+	config.Set("reference.model_table", "associations_clean")
 	config.Set("reference.allele_freq_table", "allele_frequencies")
 	config.Set("reference.column_mapping", map[string]string{
 		"AF_afr": "AF_afr",
@@ -558,15 +565,8 @@ func TestRun_BulkOperations_ConfigurationVariations(t *testing.T) {
 	// Test with different model configuration
 	config.Set("ancestry.population", "EUR")
 	config.Set("ancestry.gender", "")
-	config.Set("reference.model", "v2") // Different model version
 	config.Set("gwas_db_path", "testdata/gwas.duckdb")
-	config.Set("gwas_table", "gwas_table")
-	config.Set("reference.model_table", "reference_stats")
-	config.Set("reference.allele_freq_table", "allele_frequencies")
-	config.Set("reference.column_mapping", map[string]string{
-		"AF_afr": "AF_afr",
-		"AF_nfe": "AF_nfe",
-	})
+	config.Set("gwas_table", "associations_clean")
 	config.Set("user.gcp_project", "test-project")
 	config.Set("cache.gcp_project", "test-project")
 	config.Set("cache.dataset", "test_dataset")
@@ -618,19 +618,19 @@ func TestRun_WithMocks_FullPipeline_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, output.TraitSummaries)
 
-	// Validate BigQuery call optimization - should have maximum 4 calls
-	assert.LessOrEqual(t, len(gnomadMock.QueryCalls), 4, "Should have maximum 4 BigQuery calls for bulk operations")
-	assert.GreaterOrEqual(t, len(gnomadMock.QueryCalls), 2, "Should have minimum 2 BigQuery calls (model + frequencies)")
+	// Validate BigQuery call optimization - should have maximum 2 calls
+	assert.LessOrEqual(t, len(gnomadMock.QueryCalls), 2, "Should have maximum 2 BigQuery calls for bulk operations")
+	assert.GreaterOrEqual(t, len(gnomadMock.QueryCalls), 1, "Should have minimum 1 BigQuery call (model or frequencies)")
 
 	// Validate bulk query patterns
 	foundModelQuery := false
 	foundFrequencyQuery := false
 
 	for _, call := range gnomadMock.QueryCalls {
-		if strings.Contains(call.Query, "reference_stats") {
+		if strings.Contains(call.Query, "associations_clean") && strings.Contains(call.Query, "trait = ?") {
 			foundModelQuery = true
 		}
-		if strings.Contains(call.Query, "allele_frequencies") {
+		if strings.Contains(call.Query, "gnomad_genomes_v3_1_1_hgdp_1kg") {
 			foundFrequencyQuery = true
 			// Validate bulk OR pattern in frequency query
 			assert.Contains(t, call.Query, " OR ", "Frequency query should use bulk OR pattern")
@@ -688,33 +688,41 @@ func TestRun_WithMocks_CacheHit_Scenario(t *testing.T) {
 
 	// Setup model loading mock
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "reference_stats") {
+		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
 			return []map[string]interface{}{
 				{
-					"id":            "1:12345:G:A",
-					"effect_weight": 0.5,
-					"effect_allele": "A",
-					"other_allele":  "G",
+					"rsid":             "rs1",
+					"risk_allele":      "A",
+					"beta":             0.2,
+					"trait":            "height",
+					"chr":              "1",
+					"chr_pos":          int64(1000),
+					"ref":              "G",
+					"alt":              "A",
+					"risk_allele_freq": 0.3,
+					"other_allele":     "G",
 				},
 			}, nil
 		}
-		if strings.Contains(query, "allele_frequencies") {
+		if strings.Contains(query, "gnomad_genomes_v3_1_1_hgdp_1kg") {
+			// Mock allele frequency data from gnomAD table
 			return []map[string]interface{}{
 				{
 					"chrom":  "1",
-					"pos":    int64(12345),
+					"pos":    int64(1000),
 					"ref":    "G",
 					"alt":    "A",
 					"AF_nfe": 0.3,
+					"AF_afr": 0.25,
 				},
 			}, nil
 		}
 		return []map[string]interface{}{}, nil
 	}
 
-	// Mock cache hit with correct key format "ancestry|trait|model"
+	// Mock cache hit with correct key format "ancestry|trait|trait"
 	cacheMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		// Return cache hit for "EUR|height|v1" key
+		// Return cache hit for "EUR|height|height" key (not "EUR|height|v1")
 		return []map[string]interface{}{
 			{
 				"mean":     0.5,
@@ -723,9 +731,13 @@ func TestRun_WithMocks_CacheHit_Scenario(t *testing.T) {
 				"max":      3.0,
 				"ancestry": "EUR",
 				"trait":    "height",
-				"model":    "v1",
+				"model":    "height", // Changed from "v1" to "height"
 			},
 		}, nil
+	}
+	cacheMock.InsertFunc = func(ctx context.Context, table string, rows []map[string]interface{}) error {
+		// Should not be called in cache hit scenario
+		return nil
 	}
 
 	input := PipelineInput{
@@ -768,7 +780,7 @@ func TestRun_WithMocks_ErrorHandling(t *testing.T) {
 
 	// Should propagate BigQuery errors properly
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to load PRS model")
+	assert.Contains(t, err.Error(), "failed to query allele frequencies")
 }
 
 // ==================== PHASE-LEVEL UNIT TESTS (PRIORITY 1) ====================
@@ -796,7 +808,6 @@ func TestAnalyzeAllRequirements_Success(t *testing.T) {
 	assert.NotNil(t, requirements)
 	assert.NotEmpty(t, requirements.TraitSet)
 	assert.NotNil(t, requirements.AncestryObj)
-	assert.NotEmpty(t, requirements.ModelID)
 	assert.NotEmpty(t, requirements.CacheKeys)
 
 	// Validate genotype output
@@ -906,7 +917,7 @@ func TestAnalyzeAllRequirements_GenotypeParsingFailure(t *testing.T) {
 func TestAnalyzeAllRequirements_AncestryConfigurationFailure(t *testing.T) {
 	// Set up invalid ancestry configuration
 	config.Set("gwas_db_path", "testdata/gwas.duckdb")
-	config.Set("gwas_table", "gwas_table")
+	config.Set("gwas_table", "associations_clean")
 	config.Set("ancestry.population", "INVALID_POPULATION")
 	config.Set("ancestry.gender", "")
 
@@ -990,13 +1001,19 @@ func TestRetrieveAllDataBulk_FullCacheHit(t *testing.T) {
 
 	// Mock model loading
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "reference_stats") {
+		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
 			return []map[string]interface{}{
 				{
-					"id":            "1:12345:G:A",
-					"effect_weight": 0.5,
-					"effect_allele": "A",
-					"other_allele":  "G",
+					"rsid":             "rs1",
+					"risk_allele":      "A",
+					"beta":             0.2,
+					"trait":            "height",
+					"chr":              "1",
+					"chr_pos":          int64(1000),
+					"ref":              "G",
+					"alt":              "A",
+					"risk_allele_freq": 0.3,
+					"other_allele":     "G",
 				},
 			}, nil
 		}
@@ -1013,7 +1030,7 @@ func TestRetrieveAllDataBulk_FullCacheHit(t *testing.T) {
 				"max":      3.0,
 				"ancestry": "EUR",
 				"trait":    "height",
-				"model":    "v1",
+				"model":    "height", // Changed from "v1" to "height"
 			},
 		}, nil
 	}
@@ -1026,9 +1043,8 @@ func TestRetrieveAllDataBulk_FullCacheHit(t *testing.T) {
 	requirements := &PipelineRequirements{
 		TraitSet: map[string]struct{}{"height": {}},
 		CacheKeys: []reference_cache.StatsRequest{
-			{Ancestry: "EUR", Trait: "height", ModelID: "v1"},
+			{Ancestry: "EUR", Trait: "height", ModelID: "height"}, // Changed from "v1" to "height"
 		},
-		ModelID:     "v1",
 		AncestryObj: ancestryObj,
 	}
 
@@ -1044,7 +1060,6 @@ func TestRetrieveAllDataBulk_FullCacheHit(t *testing.T) {
 	// Should succeed with cache hit
 	require.NoError(t, err)
 	assert.NotNil(t, bulkData)
-	assert.NotNil(t, bulkData.PRSModel)
 	assert.NotEmpty(t, bulkData.CachedStats)
 	assert.Empty(t, bulkData.ComputedStats) // No computation needed
 	assert.NotEmpty(t, bulkData.TraitSNPs)
@@ -1072,9 +1087,8 @@ func TestRetrieveAllDataBulk_FullCacheMiss(t *testing.T) {
 	requirements := &PipelineRequirements{
 		TraitSet: map[string]struct{}{"height": {}},
 		CacheKeys: []reference_cache.StatsRequest{
-			{Ancestry: "EUR", Trait: "height", ModelID: "v1"},
+			{Ancestry: "EUR", Trait: "height", ModelID: "height"}, // Changed from "v1" to "height"
 		},
-		ModelID:     "v1",
 		AncestryObj: ancestryObj,
 	}
 
@@ -1089,12 +1103,11 @@ func TestRetrieveAllDataBulk_FullCacheMiss(t *testing.T) {
 	// Should succeed with stats computation
 	require.NoError(t, err)
 	assert.NotNil(t, bulkData)
-	assert.NotNil(t, bulkData.PRSModel)
 	assert.Empty(t, bulkData.CachedStats)
 	assert.NotEmpty(t, bulkData.ComputedStats) // Should compute stats
 
 	// Should have more BigQuery calls for stats computation
-	assert.GreaterOrEqual(t, len(gnomadMock.QueryCalls), 2)
+	assert.GreaterOrEqual(t, len(gnomadMock.QueryCalls), 1) // Changed from 2 to 1 for single trait
 }
 
 func TestRetrieveAllDataBulk_MixedCacheScenario(t *testing.T) {
@@ -1114,7 +1127,7 @@ func TestRetrieveAllDataBulk_MixedCacheScenario(t *testing.T) {
 				"max":      3.0,
 				"ancestry": "EUR",
 				"trait":    "height", // Only height cached
-				"model":    "v1",
+				"model":    "height", // Changed from "v1" to "height"
 			},
 		}, nil
 	}
@@ -1129,10 +1142,9 @@ func TestRetrieveAllDataBulk_MixedCacheScenario(t *testing.T) {
 			"weight": {}, // Two traits, only height cached
 		},
 		CacheKeys: []reference_cache.StatsRequest{
-			{Ancestry: "EUR", Trait: "height", ModelID: "v1"},
-			{Ancestry: "EUR", Trait: "weight", ModelID: "v1"},
+			{Ancestry: "EUR", Trait: "height", ModelID: "height"}, // Changed from "v1" to "height"
+			{Ancestry: "EUR", Trait: "weight", ModelID: "weight"}, // Changed from "v1" to "weight"
 		},
-		ModelID:     "v1",
 		AncestryObj: ancestryObj,
 	}
 
@@ -1148,7 +1160,6 @@ func TestRetrieveAllDataBulk_MixedCacheScenario(t *testing.T) {
 	// Should succeed with mixed cache scenario
 	require.NoError(t, err)
 	assert.NotNil(t, bulkData)
-	assert.NotNil(t, bulkData.PRSModel)
 	assert.NotEmpty(t, bulkData.CachedStats)   // Should have cache hits
 	assert.NotEmpty(t, bulkData.ComputedStats) // Should compute missing
 
@@ -1164,7 +1175,7 @@ func TestRetrieveAllDataBulk_ModelLoadingFailure(t *testing.T) {
 
 	// Mock model loading failure
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "reference_stats") {
+		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
 			return nil, assert.AnError
 		}
 		return []map[string]interface{}{}, nil
@@ -1174,9 +1185,16 @@ func TestRetrieveAllDataBulk_ModelLoadingFailure(t *testing.T) {
 		return []map[string]interface{}{}, nil
 	}
 
+	// Create proper ancestry object
+	ancestryObj, ancestryErr := ancestry.New("EUR", "")
+	require.NoError(t, ancestryErr)
+
 	requirements := &PipelineRequirements{
 		TraitSet: map[string]struct{}{"height": {}},
-		ModelID:  "v1",
+		CacheKeys: []reference_cache.StatsRequest{
+			{Ancestry: "EUR", Trait: "height", ModelID: "height"}, // Changed from "v1" to "height"
+		},
+		AncestryObj: ancestryObj,
 	}
 
 	annotated := &gwas.GWASDataFetcherOutput{
@@ -1200,17 +1218,23 @@ func TestRetrieveAllDataBulk_IncompleteAlleleFrequencies(t *testing.T) {
 
 	// Mock model loading success but incomplete frequency data
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "reference_stats") {
+		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
 			return []map[string]interface{}{
 				{
-					"id":            "1:12345:G:A",
-					"effect_weight": 0.5,
-					"effect_allele": "A",
-					"other_allele":  "G",
+					"rsid":             "rs1",
+					"risk_allele":      "A",
+					"beta":             0.2,
+					"trait":            "height",
+					"chr":              "1",
+					"chr_pos":          int64(1000),
+					"ref":              "G",
+					"alt":              "A",
+					"risk_allele_freq": 0.3,
+					"other_allele":     "G",
 				},
 			}, nil
 		}
-		if strings.Contains(query, "allele_frequencies") {
+		if strings.Contains(query, "gnomad_genomes_v3_1_1_hgdp_1kg") {
 			// Return incomplete/empty frequency data
 			return []map[string]interface{}{}, nil
 		}
@@ -1229,9 +1253,8 @@ func TestRetrieveAllDataBulk_IncompleteAlleleFrequencies(t *testing.T) {
 	requirements := &PipelineRequirements{
 		TraitSet: map[string]struct{}{"height": {}},
 		CacheKeys: []reference_cache.StatsRequest{
-			{Ancestry: "EUR", Trait: "height", ModelID: "v1"},
+			{Ancestry: "EUR", Trait: "height", ModelID: "height"}, // Changed from "v1" to "height"
 		},
-		ModelID:     "v1",
 		AncestryObj: ancestryObj,
 	}
 
@@ -1257,13 +1280,19 @@ func TestRetrieveAllDataBulk_CorruptedCacheData(t *testing.T) {
 	refService, _, gnomadMock, cacheMock := setupMockPipeline(t)
 
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "reference_stats") {
+		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
 			return []map[string]interface{}{
 				{
-					"id":            "1:12345:G:A",
-					"effect_weight": 0.5,
-					"effect_allele": "A",
-					"other_allele":  "G",
+					"rsid":             "rs1",
+					"risk_allele":      "A",
+					"beta":             0.2,
+					"trait":            "height",
+					"chr":              "1",
+					"chr_pos":          int64(1000),
+					"ref":              "G",
+					"alt":              "A",
+					"risk_allele_freq": 0.3,
+					"other_allele":     "G",
 				},
 			}, nil
 		}
@@ -1283,9 +1312,8 @@ func TestRetrieveAllDataBulk_CorruptedCacheData(t *testing.T) {
 	requirements := &PipelineRequirements{
 		TraitSet: map[string]struct{}{"height": {}},
 		CacheKeys: []reference_cache.StatsRequest{
-			{Ancestry: "EUR", Trait: "height", ModelID: "v1"},
+			{Ancestry: "EUR", Trait: "height", ModelID: "height"}, // Changed from "v1" to "height"
 		},
-		ModelID: "v1",
 	}
 
 	annotated := &gwas.GWASDataFetcherOutput{
@@ -1346,7 +1374,6 @@ func TestRetrieveAllDataBulk_LargeTraitSet(t *testing.T) {
 	requirements := &PipelineRequirements{
 		TraitSet:    traitSet,
 		CacheKeys:   cacheKeys,
-		ModelID:     "v1",
 		AncestryObj: ancestryObj,
 	}
 
@@ -1359,7 +1386,6 @@ func TestRetrieveAllDataBulk_LargeTraitSet(t *testing.T) {
 	// Should handle large trait set efficiently
 	require.NoError(t, err)
 	assert.NotNil(t, bulkData)
-	assert.NotNil(t, bulkData.PRSModel)
 
 	// Should organize trait SNPs correctly
 	assert.Equal(t, 10, len(bulkData.TraitSNPs))
@@ -1391,11 +1417,10 @@ func TestRetrieveAllDataBulk_BulkQueryOptimization(t *testing.T) {
 			"bmi":    {},
 		},
 		CacheKeys: []reference_cache.StatsRequest{
-			{Ancestry: "EUR", Trait: "height", ModelID: "v1"},
-			{Ancestry: "EUR", Trait: "weight", ModelID: "v1"},
-			{Ancestry: "EUR", Trait: "bmi", ModelID: "v1"},
+			{Ancestry: "EUR", Trait: "height", ModelID: "height"}, // Changed from "v1" to "height"
+			{Ancestry: "EUR", Trait: "weight", ModelID: "weight"}, // Changed from "v1" to "weight"
+			{Ancestry: "EUR", Trait: "bmi", ModelID: "bmi"},       // Changed from "v1" to "bmi"
 		},
-		ModelID:     "v1",
 		AncestryObj: ancestryObj,
 	}
 
@@ -1439,13 +1464,7 @@ func TestProcessAllTraitsInMemory_MultipleTraits(t *testing.T) {
 			"weight": {},
 			"bmi":    {},
 		},
-		TraitModels: map[string]string{
-			"height": "v1",
-			"weight": "v1",
-			"bmi":    "v1",
-		},
 		AncestryObj: ancestryObj,
-		ModelID:     "v1",
 	}
 
 	// Create reference stats for all traits
@@ -1515,9 +1534,7 @@ func TestProcessAllTraitsInMemory_EmptyTraitSet(t *testing.T) {
 	// Create requirements with empty trait set
 	requirements := &PipelineRequirements{
 		TraitSet:    make(map[string]struct{}),
-		TraitModels: make(map[string]string),
 		AncestryObj: ancestryObj,
-		ModelID:     "v1",
 	}
 
 	// Create empty bulk data
@@ -1550,11 +1567,7 @@ func TestProcessAllTraitsInMemory_MissingReferenceStats(t *testing.T) {
 		TraitSet: map[string]struct{}{
 			"height": {},
 		},
-		TraitModels: map[string]string{
-			"height": "v1",
-		},
 		AncestryObj: ancestryObj,
-		ModelID:     "v1",
 	}
 
 	// Create bulk data without reference stats
@@ -1585,11 +1598,7 @@ func TestProcessAllTraitsInMemory_PRSCalculationAccuracy(t *testing.T) {
 		TraitSet: map[string]struct{}{
 			"height": {},
 		},
-		TraitModels: map[string]string{
-			"height": "v1",
-		},
 		AncestryObj: ancestryObj,
-		ModelID:     "v1",
 	}
 
 	// Create reference stats with non-zero mean
@@ -1650,11 +1659,7 @@ func TestProcessAllTraitsInMemory_NormalizationAccuracy(t *testing.T) {
 		TraitSet: map[string]struct{}{
 			"height": {},
 		},
-		TraitModels: map[string]string{
-			"height": "v1",
-		},
 		AncestryObj: ancestryObj,
-		ModelID:     "v1",
 	}
 
 	// Create reference stats with known values for normalization testing
@@ -1711,11 +1716,7 @@ func TestProcessAllTraitsInMemory_SummaryGeneration(t *testing.T) {
 		TraitSet: map[string]struct{}{
 			"height": {},
 		},
-		TraitModels: map[string]string{
-			"height": "v1",
-		},
 		AncestryObj: ancestryObj,
-		ModelID:     "v1",
 	}
 
 	// Create reference stats with non-zero mean
@@ -1787,12 +1788,7 @@ func TestProcessAllTraitsInMemory_ComputedStatsAndCacheEntries(t *testing.T) {
 			"height": {},
 			"weight": {},
 		},
-		TraitModels: map[string]string{
-			"height": "v1",
-			"weight": "v1",
-		},
 		AncestryObj: ancestryObj,
-		ModelID:     "v1",
 	}
 
 	// Create reference stats for computed stats scenario
@@ -1875,13 +1871,7 @@ func TestProcessAllTraitsInMemory_SkippedTraitsWithNoSNPs(t *testing.T) {
 			"weight": {},
 			"empty":  {}, // This trait will have no SNPs
 		},
-		TraitModels: map[string]string{
-			"height": "v1",
-			"weight": "v1",
-			"empty":  "v1",
-		},
 		AncestryObj: ancestryObj,
-		ModelID:     "v1",
 	}
 
 	// Create reference stats with non-zero mean

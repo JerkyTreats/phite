@@ -2,7 +2,7 @@ package gwas
 
 import (
 	"context"
-	"os"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -64,12 +64,9 @@ func (s *GWASService) FetchGWASRecordsWithTable(ctx context.Context, table strin
 
 // FetchGWASRecords loads GWAS SNP records for the given rsids from the configured table using the repository abstraction.
 func (s *GWASService) FetchGWASRecords(ctx context.Context, rsids []string) (map[string]model.GWASSNPRecord, error) {
-	table := os.Getenv("GWAS_TABLE")
+	table := config.GetString("gwas_table")
 	if table == "" {
-		table = config.GetString("gwas_table")
-		if table == "" {
-			table = "associations_clean"
-		}
+		return nil, fmt.Errorf("gwas_table is not set")
 	}
 	return s.FetchGWASRecordsWithTable(ctx, table, rsids)
 }

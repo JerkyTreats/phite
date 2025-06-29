@@ -110,14 +110,23 @@ func NewRepositoryCache(repo dbinterface.Repository, params ...map[string]string
 	}, nil
 }
 
-// getFullyQualifiedTableName returns the properly qualified table name (project.dataset.table)
-func (c *RepositoryCache) getFullyQualifiedTableName() string {
-	if c.projectID != "" && c.datasetID != "" {
-		return fmt.Sprintf("%s.%s.%s", c.projectID, c.datasetID, c.TableID)
-	} else if c.datasetID != "" {
-		return fmt.Sprintf("%s.%s", c.datasetID, c.TableID)
+// GetFullyQualifiedTableName returns the properly qualified table name (`project.dataset.table`)
+// with backticks to prevent SQL injection and parsing issues.
+// Returns an error if any component is missing.
+func (c *RepositoryCache) GetFullyQualifiedTableName() (string, error) {
+	if c.projectID == "" {
+		return "", fmt.Errorf("project ID is required for BigQuery cache operations, got empty value")
 	}
-	return c.TableID
+	if c.datasetID == "" {
+		return "", fmt.Errorf("dataset ID is required for BigQuery cache operations, got empty value")
+	}
+	if c.TableID == "" {
+		return "", fmt.Errorf("table ID is required for BigQuery cache operations, got empty value")
+	}
+
+	fqTable := fmt.Sprintf("`%s`.`%s`.`%s`", c.projectID, c.datasetID, c.TableID)
+	logging.Debug("Fully qualified table name: %s", fqTable)
+	return fqTable, nil
 }
 
 // GetReferenceStats implements ReferenceStatsBackend interface with ancestry objects.
@@ -133,7 +142,11 @@ func (c *RepositoryCache) GetReferenceStats(ctx context.Context, ancestry *ances
 
 // Get retrieves reference statistics from the repository.
 func (c *RepositoryCache) Get(ctx context.Context, req StatsRequest) (*reference_stats.ReferenceStats, error) {
-	fullyQualifiedTable := c.getFullyQualifiedTableName()
+	fullyQualifiedTable, err := c.GetFullyQualifiedTableName()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build fully qualified table name: %w", err)
+	}
+
 	queryString := fmt.Sprintf(
 		"SELECT mean, std, min, max, ancestry, trait, model FROM %s WHERE ancestry = ? AND trait = ? AND model = ? LIMIT 1",
 		fullyQualifiedTable,
@@ -177,8 +190,15 @@ func (c *RepositoryCache) Get(ctx context.Context, req StatsRequest) (*reference
 
 // GetBatch retrieves multiple reference statistics from the repository in a single query.
 func (c *RepositoryCache) GetBatch(ctx context.Context, reqs []StatsRequest) (map[string]*reference_stats.ReferenceStats, error) {
+	logging.Info("Getting batch of %d reference stats", len(reqs))
 	if len(reqs) == 0 {
 		return make(map[string]*reference_stats.ReferenceStats), nil
+	}
+
+	fullyQualifiedTable, err := c.GetFullyQualifiedTableName()
+	logging.Debug("Fully qualified table name: %s", fullyQualifiedTable)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build fully qualified table name: %w", err)
 	}
 
 	// Build batch query with OR clause for optimal performance
@@ -190,7 +210,6 @@ func (c *RepositoryCache) GetBatch(ctx context.Context, reqs []StatsRequest) (ma
 		args = append(args, req.Ancestry, req.Trait, req.ModelID)
 	}
 
-	fullyQualifiedTable := c.getFullyQualifiedTableName()
 	queryString := fmt.Sprintf(
 		"SELECT mean, std, min, max, ancestry, trait, model FROM %s WHERE %s",
 		fullyQualifiedTable,

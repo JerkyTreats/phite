@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/viper"
 	"phite.io/polygenic-risk-calculator/internal/ancestry"
-	"phite.io/polygenic-risk-calculator/internal/config"
 	"phite.io/polygenic-risk-calculator/internal/genotype"
 	gwas "phite.io/polygenic-risk-calculator/internal/gwas"
 	"phite.io/polygenic-risk-calculator/internal/logging"
@@ -40,12 +39,9 @@ type PipelineOutput struct {
 // PipelineRequirements holds all data requirements identified during analysis phase
 type PipelineRequirements struct {
 	TraitSet      map[string]struct{}
-	TraitModels   map[string]string          // trait -> modelID (same for all in our case)
-	AllVariants   map[string][]model.Variant // trait -> variants
 	CacheKeys     []reference_cache.StatsRequest
 	StatsRequests []reference.ReferenceStatsRequest
 	AncestryObj   *ancestry.Ancestry
-	ModelID       string
 }
 
 // BulkDataContext holds all data retrieved in bulk operations
@@ -53,7 +49,7 @@ type BulkDataContext struct {
 	AlleleFrequencies map[string]map[string]float64              // trait -> variant -> freq
 	CachedStats       map[string]*reference_stats.ReferenceStats // cache hits
 	ComputedStats     map[string]*reference_stats.ReferenceStats // computed for cache misses
-	PRSModel          *model.PRSModel                            // loaded once
+	PRSModels         map[string]*model.PRSModel                 // trait -> model
 	TraitSNPs         map[string][]model.AnnotatedSNP            // trait -> SNPs
 }
 
@@ -93,7 +89,7 @@ func Run(input PipelineInput, refService ...*reference.ReferenceService) (Pipeli
 	if len(refService) > 0 && refService[0] != nil {
 		rs = refService[0]
 	} else {
-		rs, err = reference.NewReferenceService(nil, nil)
+		rs, err = reference.NewReferenceService(nil, nil, nil)
 		if err != nil {
 			return PipelineOutput{}, fmt.Errorf("failed to create reference service: %w", err)
 		}
@@ -195,30 +191,20 @@ func analyzeAllRequirements(ctx context.Context, input PipelineInput) (*Pipeline
 		}
 	}
 
-	modelID := config.GetString("reference.model")
-	ancestryCode := ancestryObj.Code()
-
 	// Build cache requests for all traits
 	cacheKeys := make([]reference_cache.StatsRequest, 0, len(traitSet))
 	for trait := range traitSet {
 		cacheKeys = append(cacheKeys, reference_cache.StatsRequest{
-			Ancestry: ancestryCode,
+			Ancestry: ancestryObj.Code(),
 			Trait:    trait,
-			ModelID:  modelID,
+			ModelID:  trait,
 		})
 	}
 
 	requirements := &PipelineRequirements{
 		TraitSet:    traitSet,
-		TraitModels: make(map[string]string),
 		CacheKeys:   cacheKeys,
 		AncestryObj: ancestryObj,
-		ModelID:     modelID,
-	}
-
-	// All traits use the same model in our current implementation
-	for trait := range traitSet {
-		requirements.TraitModels[trait] = modelID
 	}
 
 	return requirements, genoOut, annotated, nil
@@ -233,19 +219,12 @@ func retrieveAllDataBulk(ctx context.Context, requirements *PipelineRequirements
 		return nil, fmt.Errorf("bulk cache lookup failed: %w", err)
 	}
 
-	// BULK OPERATION 2: Load PRS model once (shared across all traits)
-	logging.Info("Loading PRS model: %s", requirements.ModelID)
-	prsModel, err := refService.LoadModel(ctx, requirements.ModelID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load PRS model: %w", err)
-	}
-
 	// Identify cache misses and prepare for bulk stats computation
 	cacheMisses := make([]string, 0)
 	ancestryCode := requirements.AncestryObj.Code()
 
 	for trait := range requirements.TraitSet {
-		key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, requirements.ModelID)
+		key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, trait)
 		if _, found := cacheResults[key]; !found {
 			cacheMisses = append(cacheMisses, trait)
 		}
@@ -262,7 +241,6 @@ func retrieveAllDataBulk(ctx context.Context, requirements *PipelineRequirements
 			statsRequests = append(statsRequests, reference.ReferenceStatsRequest{
 				Ancestry: requirements.AncestryObj,
 				Trait:    trait,
-				ModelID:  requirements.ModelID,
 			})
 		}
 
@@ -273,7 +251,7 @@ func retrieveAllDataBulk(ctx context.Context, requirements *PipelineRequirements
 
 		// Process bulk stats results
 		for _, trait := range cacheMisses {
-			key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, requirements.ModelID)
+			key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, trait)
 			if stats, found := bulkStats[key]; found {
 				computedStats[trait] = stats
 			} else {
@@ -299,7 +277,6 @@ func retrieveAllDataBulk(ctx context.Context, requirements *PipelineRequirements
 	return &BulkDataContext{
 		CachedStats:   cacheResults,
 		ComputedStats: computedStats,
-		PRSModel:      prsModel,
 		TraitSNPs:     traitSNPs,
 	}, nil
 }
@@ -332,7 +309,7 @@ func processAllTraitsInMemory(requirements *PipelineRequirements, bulkData *Bulk
 
 		// Get reference stats (from cache or computed)
 		var refStats *reference_stats.ReferenceStats
-		key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, requirements.ModelID)
+		key := fmt.Sprintf("%s|%s|%s", ancestryCode, trait, trait)
 
 		if cachedStats, found := bulkData.CachedStats[key]; found {
 			refStats = cachedStats
@@ -344,7 +321,7 @@ func processAllTraitsInMemory(requirements *PipelineRequirements, bulkData *Bulk
 				Request: reference_cache.StatsRequest{
 					Ancestry: ancestryCode,
 					Trait:    trait,
-					ModelID:  requirements.ModelID,
+					ModelID:  trait,
 				},
 				Stats: refStats,
 			})
@@ -387,7 +364,7 @@ func processAllTraitsInMemory(requirements *PipelineRequirements, bulkData *Bulk
 // storeBulkResults executes all storage operations in bulk
 func storeBulkResults(ctx context.Context, results *ProcessingResults, refService *reference.ReferenceService) error {
 	if len(results.CacheEntries) == 0 {
-		logging.Info("No cache entries to store")
+		logging.Info("No cache entries to store (all cache hits)")
 		return nil
 	}
 

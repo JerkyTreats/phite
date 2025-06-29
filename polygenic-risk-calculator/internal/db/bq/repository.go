@@ -66,9 +66,15 @@ func NewRepository(projectID, datasetID, billingProject string) (dbinterface.Rep
 
 // Query executes a SQL query and returns the results as a slice of maps
 func (r *Repository) Query(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-	logging.Debug("Executing BigQuery query: %s", query)
+	logging.Debug("Executing BigQuery query with %d args: %s", len(args), query)
 
-	it, err := r.bqclient.Client.Query(query).Read(ctx)
+	q := r.bqclient.Client.Query(query)
+	q.Parameters = make([]bigquery.QueryParameter, len(args))
+	for i, arg := range args {
+		q.Parameters[i] = bigquery.QueryParameter{Value: arg}
+	}
+
+	it, err := q.Read(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
