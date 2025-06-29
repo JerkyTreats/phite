@@ -57,13 +57,14 @@ type RepositoryCache struct {
 	Repo      dbinterface.Repository
 	TableID   string
 	datasetID string // Add dataset ID to build fully qualified table names
+	projectID string // Add project ID for full qualification
 }
 
 // NewRepositoryCache creates a new cache with dependency injection
 // If repo is nil, it will be created using provided params or default configuration
 func NewRepositoryCache(repo dbinterface.Repository, params ...map[string]string) (*RepositoryCache, error) {
 	var err error
-	var datasetID string
+	var datasetID, projectID string
 
 	// Create repository if not provided
 	if repo == nil {
@@ -71,10 +72,12 @@ func NewRepositoryCache(repo dbinterface.Repository, params ...map[string]string
 			// Use provided parameters
 			repo, err = db.GetRepository(context.Background(), "bq", params[0])
 			datasetID = params[0]["dataset_id"] // Capture dataset ID from params
+			projectID = params[0]["project_id"] // Capture project ID from params
 		} else {
 			// Use default configuration
 			repo, err = db.GetRepository(context.Background(), "bq")
 			datasetID = config.GetString(config.BigQueryCacheDatasetKey) // Use config fallback
+			projectID = config.GetString(config.GCPCacheProjectKey)      // Use config fallback
 		}
 		if err != nil {
 			logging.Error("Failed to create RepositoryCache: %v", err)
@@ -82,10 +85,20 @@ func NewRepositoryCache(repo dbinterface.Repository, params ...map[string]string
 		}
 	} else {
 		// If repository is provided, try to get dataset from params or config
-		if len(params) > 0 && params[0] != nil && params[0]["dataset_id"] != "" {
-			datasetID = params[0]["dataset_id"]
-		} else {
+		if len(params) > 0 && params[0] != nil {
+			if params[0]["dataset_id"] != "" {
+				datasetID = params[0]["dataset_id"]
+			}
+			if params[0]["project_id"] != "" {
+				projectID = params[0]["project_id"]
+			}
+		}
+		// Fall back to config if not provided in params
+		if datasetID == "" {
 			datasetID = config.GetString(config.BigQueryCacheDatasetKey)
+		}
+		if projectID == "" {
+			projectID = config.GetString(config.GCPCacheProjectKey)
 		}
 	}
 
@@ -93,12 +106,15 @@ func NewRepositoryCache(repo dbinterface.Repository, params ...map[string]string
 		Repo:      repo,
 		TableID:   config.GetString(config.TableCacheTableKey),
 		datasetID: datasetID,
+		projectID: projectID,
 	}, nil
 }
 
-// getFullyQualifiedTableName returns the properly qualified table name
+// getFullyQualifiedTableName returns the properly qualified table name (project.dataset.table)
 func (c *RepositoryCache) getFullyQualifiedTableName() string {
-	if c.datasetID != "" {
+	if c.projectID != "" && c.datasetID != "" {
+		return fmt.Sprintf("%s.%s.%s", c.projectID, c.datasetID, c.TableID)
+	} else if c.datasetID != "" {
 		return fmt.Sprintf("%s.%s", c.datasetID, c.TableID)
 	}
 	return c.TableID
