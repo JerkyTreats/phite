@@ -17,11 +17,11 @@ func TestFullPipelineStatisticalValidation(t *testing.T) {
 	logging.SetSilentLoggingForTest()
 
 	// Enable strict validation for comprehensive testing
-	config.SetForTest("invariance.enable_validation", true)
-	config.SetForTest("invariance.strict_mode", true)
+	config.Set("invariance.enable_validation", true)
+	config.Set("invariance.strict_mode", true)
 	defer func() {
-		config.SetForTest("invariance.enable_validation", false)
-		config.SetForTest("invariance.strict_mode", false)
+		config.Set("invariance.enable_validation", false)
+		config.Set("invariance.strict_mode", false)
 	}()
 
 	// Known Hardy-Weinberg Equilibrium population
@@ -233,11 +233,11 @@ func TestEndToEndPipelinePerformance(t *testing.T) {
 	logging.SetSilentLoggingForTest()
 
 	// Test performance with invariance validation enabled
-	config.SetForTest("invariance.enable_validation", true)
-	config.SetForTest("invariance.strict_mode", false) // Disable strict for performance
+	config.Set("invariance.enable_validation", true)
+	config.Set("invariance.strict_mode", false) // Disable strict for performance
 	defer func() {
-		config.SetForTest("invariance.enable_validation", false)
-		config.SetForTest("invariance.strict_mode", false)
+		config.Set("invariance.enable_validation", false)
+		config.Set("invariance.strict_mode", false)
 	}()
 
 	// Generate large SNP set to test performance

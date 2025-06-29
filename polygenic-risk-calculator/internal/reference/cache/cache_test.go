@@ -480,7 +480,7 @@ func TestRepositoryCache_GetBatch_InvalidStats(t *testing.T) {
 }
 
 func TestRepositoryCache_StoreBatch_ValidEntries(t *testing.T) {
-	config.SetForTest(BatchSizeKey, 100)
+	config.Set(BatchSizeKey, 100)
 	defer config.ResetForTest()
 
 	insertCount := 0
@@ -558,7 +558,7 @@ func TestRepositoryCache_StoreBatch_SingleBatch(t *testing.T) {
 }
 
 func TestRepositoryCache_StoreBatch_BatchSizeLimit(t *testing.T) {
-	config.SetForTest(BatchSizeKey, 2)
+	config.Set(BatchSizeKey, 2)
 	defer config.ResetForTest()
 
 	insertCount := 0
@@ -643,7 +643,7 @@ func TestRepositoryCache_StoreBatch_InsertError(t *testing.T) {
 }
 
 func TestRepositoryCache_StoreBatch_PartialBatchFailure(t *testing.T) {
-	config.SetForTest(BatchSizeKey, 2)
+	config.Set(BatchSizeKey, 2)
 	defer config.ResetForTest()
 
 	insertCount := 0

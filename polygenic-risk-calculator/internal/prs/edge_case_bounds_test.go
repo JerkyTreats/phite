@@ -18,8 +18,8 @@ func TestEdgeCaseBounds_ExtremeFrequencies(t *testing.T) {
 	logging.SetSilentLoggingForTest()
 
 	// Enable validation for edge case testing
-	config.SetForTest("invariance.enable_validation", true)
-	defer config.SetForTest("invariance.enable_validation", false)
+	config.Set("invariance.enable_validation", true)
+	defer config.Set("invariance.enable_validation", false)
 
 	testCases := []struct {
 		name         string
@@ -123,8 +123,8 @@ func TestEdgeCaseBounds_PRSCalculationExtreme(t *testing.T) {
 	}
 
 	// Disable strict mode for extreme numerical testing
-	config.SetForTest("invariance.strict_mode", false)
-	defer config.SetForTest("invariance.strict_mode", false)
+	config.Set("invariance.strict_mode", false)
+	defer config.Set("invariance.strict_mode", false)
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

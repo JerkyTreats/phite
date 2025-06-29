@@ -13,13 +13,13 @@ import (
 func TestInvariantValidator(t *testing.T) {
 	// Setup configuration for non-strict mode
 	config.ResetForTest()
-	config.SetForTest(invariance.EnableValidationKey, true)
-	config.SetForTest(invariance.StrictModeKey, false)
+	config.Set(invariance.EnableValidationKey, true)
+	config.Set(invariance.StrictModeKey, false)
 
 	validator := NewInvariantValidator(false) // Non-strict mode
 
 	// Setup configuration for strict mode
-	config.SetForTest(invariance.StrictModeKey, true)
+	config.Set(invariance.StrictModeKey, true)
 	strictValidator := NewInvariantValidator(true) // Strict mode
 
 	// Test ValidateAnnotatedSNP
@@ -33,7 +33,7 @@ func TestInvariantValidator(t *testing.T) {
 	}
 
 	// Reset to non-strict for valid SNP test
-	config.SetForTest(invariance.StrictModeKey, false)
+	config.Set(invariance.StrictModeKey, false)
 	err := validator.ValidateAnnotatedSNP(validSNP, "unit test")
 	if err != nil {
 		t.Errorf("Valid SNP should pass validation: %v", err)
@@ -52,14 +52,14 @@ func TestInvariantValidator(t *testing.T) {
 	largeBetaSNP.Beta = 100.0 // Very large beta
 
 	// Non-strict mode should allow large beta
-	config.SetForTest(invariance.StrictModeKey, false)
+	config.Set(invariance.StrictModeKey, false)
 	err = validator.ValidateAnnotatedSNP(largeBetaSNP, "unit test")
 	if err != nil {
 		t.Errorf("Non-strict mode should allow large beta")
 	}
 
 	// Strict mode should reject very large beta
-	config.SetForTest(invariance.StrictModeKey, true)
+	config.Set(invariance.StrictModeKey, true)
 	err = strictValidator.ValidateAnnotatedSNP(largeBetaSNP, "unit test")
 	if err == nil {
 		t.Errorf("Strict mode should reject very large beta")

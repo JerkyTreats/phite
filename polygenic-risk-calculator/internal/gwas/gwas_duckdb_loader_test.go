@@ -13,8 +13,8 @@ import (
 
 func setupGWASTestConfig(t *testing.T) {
 	// Set up test configuration with required GWAS database path
-	config.SetForTest("gwas_db_path", "testdata/gwas.duckdb")
-	config.SetForTest("gwas_table", "associations_clean")
+	config.Set("gwas_db_path", "testdata/gwas.duckdb")
+	config.Set("gwas_table", "associations_clean")
 }
 
 func TestFetchGWASRecords(t *testing.T) {

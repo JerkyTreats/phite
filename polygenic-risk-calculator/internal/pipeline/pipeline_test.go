@@ -41,16 +41,16 @@ func setupTestRepositories(t *testing.T) (dbinterface.Repository, dbinterface.Re
 
 func setupTestConfig(t *testing.T) {
 	// Set up test configuration with required ancestry settings
-	config.SetForTest("ancestry.population", "EUR")
-	config.SetForTest("ancestry.gender", "")
-	config.SetForTest("reference.model", "v1")
+	config.Set("ancestry.population", "EUR")
+	config.Set("ancestry.gender", "")
+	config.Set("reference.model", "v1")
 	// Configure GWAS database path for testing
-	config.SetForTest("gwas_db_path", "testdata/gwas.duckdb")
-	config.SetForTest("gwas_table", "gwas_table")
+	config.Set("gwas_db_path", "testdata/gwas.duckdb")
+	config.Set("gwas_table", "gwas_table")
 	// Configure reference service settings
-	config.SetForTest("reference.model_table", "reference_stats")
-	config.SetForTest("reference.allele_freq_table", "allele_frequencies")
-	config.SetForTest("reference.column_mapping", map[string]string{
+	config.Set("reference.model_table", "reference_stats")
+	config.Set("reference.allele_freq_table", "allele_frequencies")
+	config.Set("reference.column_mapping", map[string]string{
 		"id":            "id",
 		"effect_weight": "effect_weight",
 		"effect_allele": "effect_allele",
@@ -60,10 +60,10 @@ func setupTestConfig(t *testing.T) {
 		"AF_nfe":        "AF_nfe",
 	})
 	// Configure GCP settings (though we might not need them for tests)
-	config.SetForTest("user.gcp_project", "test-project")
-	config.SetForTest("cache.gcp_project", "test-project")
-	config.SetForTest("cache.dataset", "test_dataset")
-	config.SetForTest("bigquery.table_id", "test_cache_table")
+	config.Set("user.gcp_project", "test-project")
+	config.Set("cache.gcp_project", "test-project")
+	config.Set("cache.dataset", "test_dataset")
+	config.Set("bigquery.table_id", "test_cache_table")
 }
 
 // setupMockPipeline creates a pipeline with mock repositories for testing
@@ -273,23 +273,23 @@ func TestRun_ErrorOnMissingAncestryConfig(t *testing.T) {
 
 func TestRun_CustomAncestryConfig(t *testing.T) {
 	// Test with different ancestry configuration
-	config.SetForTest("ancestry.population", "AFR")
-	config.SetForTest("ancestry.gender", "FEMALE")
-	config.SetForTest("reference.model", "v1")
+	config.Set("ancestry.population", "AFR")
+	config.Set("ancestry.gender", "FEMALE")
+	config.Set("reference.model", "v1")
 	// Also need to set up GWAS database configuration
-	config.SetForTest("gwas_db_path", "testdata/gwas.duckdb")
-	config.SetForTest("gwas_table", "gwas_table")
+	config.Set("gwas_db_path", "testdata/gwas.duckdb")
+	config.Set("gwas_table", "gwas_table")
 	// Configure reference service settings
-	config.SetForTest("reference.model_table", "reference_stats")
-	config.SetForTest("reference.allele_freq_table", "allele_frequencies")
-	config.SetForTest("reference.column_mapping", map[string]string{
+	config.Set("reference.model_table", "reference_stats")
+	config.Set("reference.allele_freq_table", "allele_frequencies")
+	config.Set("reference.column_mapping", map[string]string{
 		"AF_afr": "AF_afr",
 		"AF_nfe": "AF_nfe",
 	})
 	// Configure GCP settings (though we might not need them for tests)
-	config.SetForTest("user.gcp_project", "test-project")
-	config.SetForTest("cache.gcp_project", "test-project")
-	config.SetForTest("cache.dataset", "test_dataset")
+	config.Set("user.gcp_project", "test-project")
+	config.Set("cache.gcp_project", "test-project")
+	config.Set("cache.dataset", "test_dataset")
 
 	input := PipelineInput{
 		GenotypeFile:   "testdata/genotype_single_trait.txt",
@@ -488,20 +488,20 @@ func TestRun_BulkOperations_MemoryEfficiency(t *testing.T) {
 // TestRun_BulkOperations_AncestryIntegration tests bulk operations with different ancestries
 func TestRun_BulkOperations_AncestryIntegration(t *testing.T) {
 	// Test with Asian ancestry for bulk operations
-	config.SetForTest("ancestry.population", "EAS")
-	config.SetForTest("ancestry.gender", "MALE")
-	config.SetForTest("reference.model", "v1")
-	config.SetForTest("gwas_db_path", "testdata/gwas.duckdb")
-	config.SetForTest("gwas_table", "gwas_table")
-	config.SetForTest("reference.model_table", "reference_stats")
-	config.SetForTest("reference.allele_freq_table", "allele_frequencies")
-	config.SetForTest("reference.column_mapping", map[string]string{
+	config.Set("ancestry.population", "EAS")
+	config.Set("ancestry.gender", "MALE")
+	config.Set("reference.model", "v1")
+	config.Set("gwas_db_path", "testdata/gwas.duckdb")
+	config.Set("gwas_table", "gwas_table")
+	config.Set("reference.model_table", "reference_stats")
+	config.Set("reference.allele_freq_table", "allele_frequencies")
+	config.Set("reference.column_mapping", map[string]string{
 		"AF_afr": "AF_afr",
 		"AF_nfe": "AF_nfe",
 	})
-	config.SetForTest("user.gcp_project", "test-project")
-	config.SetForTest("cache.gcp_project", "test-project")
-	config.SetForTest("cache.dataset", "test_dataset")
+	config.Set("user.gcp_project", "test-project")
+	config.Set("cache.gcp_project", "test-project")
+	config.Set("cache.dataset", "test_dataset")
 
 	input := PipelineInput{
 		GenotypeFile:   "testdata/genotype_multi_trait.txt",
@@ -556,20 +556,20 @@ func TestRun_BulkOperations_PhaseTransitions(t *testing.T) {
 // TestRun_BulkOperations_ConfigurationVariations tests different configurations
 func TestRun_BulkOperations_ConfigurationVariations(t *testing.T) {
 	// Test with different model configuration
-	config.SetForTest("ancestry.population", "EUR")
-	config.SetForTest("ancestry.gender", "")
-	config.SetForTest("reference.model", "v2") // Different model version
-	config.SetForTest("gwas_db_path", "testdata/gwas.duckdb")
-	config.SetForTest("gwas_table", "gwas_table")
-	config.SetForTest("reference.model_table", "reference_stats")
-	config.SetForTest("reference.allele_freq_table", "allele_frequencies")
-	config.SetForTest("reference.column_mapping", map[string]string{
+	config.Set("ancestry.population", "EUR")
+	config.Set("ancestry.gender", "")
+	config.Set("reference.model", "v2") // Different model version
+	config.Set("gwas_db_path", "testdata/gwas.duckdb")
+	config.Set("gwas_table", "gwas_table")
+	config.Set("reference.model_table", "reference_stats")
+	config.Set("reference.allele_freq_table", "allele_frequencies")
+	config.Set("reference.column_mapping", map[string]string{
 		"AF_afr": "AF_afr",
 		"AF_nfe": "AF_nfe",
 	})
-	config.SetForTest("user.gcp_project", "test-project")
-	config.SetForTest("cache.gcp_project", "test-project")
-	config.SetForTest("cache.dataset", "test_dataset")
+	config.Set("user.gcp_project", "test-project")
+	config.Set("cache.gcp_project", "test-project")
+	config.Set("cache.dataset", "test_dataset")
 
 	input := PipelineInput{
 		GenotypeFile:   "testdata/genotype_single_trait.txt",
@@ -865,7 +865,7 @@ func TestAnalyzeAllRequirements_GWASServiceFailure(t *testing.T) {
 	setupTestConfig(t)
 
 	// Set invalid GWAS DB path to trigger GWAS service failure
-	config.SetForTest("gwas_db_path", "/invalid/path/that/does/not/exist.duckdb")
+	config.Set("gwas_db_path", "/invalid/path/that/does/not/exist.duckdb")
 
 	ctx := context.Background()
 	input := PipelineInput{
@@ -905,10 +905,10 @@ func TestAnalyzeAllRequirements_GenotypeParsingFailure(t *testing.T) {
 
 func TestAnalyzeAllRequirements_AncestryConfigurationFailure(t *testing.T) {
 	// Set up invalid ancestry configuration
-	config.SetForTest("gwas_db_path", "testdata/gwas.duckdb")
-	config.SetForTest("gwas_table", "gwas_table")
-	config.SetForTest("ancestry.population", "INVALID_POPULATION")
-	config.SetForTest("ancestry.gender", "")
+	config.Set("gwas_db_path", "testdata/gwas.duckdb")
+	config.Set("gwas_table", "gwas_table")
+	config.Set("ancestry.population", "INVALID_POPULATION")
+	config.Set("ancestry.gender", "")
 
 	ctx := context.Background()
 	input := PipelineInput{

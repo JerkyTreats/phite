@@ -273,8 +273,8 @@ func TestNumericalStability(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Enable strict mode for overflow/underflow tests
 			if tc.name == "Overflow boundary" || tc.name == "Underflow boundary" {
-				config.SetForTest(StrictModeKey, true)
-				defer config.SetForTest(StrictModeKey, false)
+				config.Set(StrictModeKey, true)
+				defer config.Set(StrictModeKey, false)
 			}
 
 			err := AssertNumericalStability(tc.value, "unit test")

@@ -1,0 +1,52 @@
+{
+  "gcp": {
+    "data_project": "bigquery-public-data",
+    "billing_project": "my-genomics-project-12345",
+    "cache_project": "my-genomics-project-12345"
+  },
+
+  "bigquery": {
+    "gnomad_dataset": "gnomad",
+    "cache_dataset": "polygenic_risk_cache"
+  },
+
+  "tables": {
+    "cache_table": "reference_stats",
+    "model_table": "prs_models_v2",
+    "allele_freq_table": "gnomad_genomes_v3_1_1_hgdp_1kg"
+  },
+
+  "ancestry": {
+    "population": "EUR",
+    "gender": ""
+  },
+
+  "reference": {
+    "column_mapping": {
+      "id": "rsid",
+      "chromosome": "chr",
+      "position": "pos",
+      "effect_allele": "alt",
+      "other_allele": "ref",
+      "effect_weight": "beta",
+      "p_value": "pval",
+      "ancestry": "pop",
+      "trait": "phenotype",
+      "model_id": "model_type"
+    }
+  },
+
+  "cache": {
+    "batch_size": 100
+  },
+
+  "invariance": {
+    "enable_validation": true,
+    "strict_mode": false
+  },
+
+  "logging": {
+    "level": "INFO"
+  }
+
+}

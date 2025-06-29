@@ -11,8 +11,6 @@ import (
 	snpsutil "phite.io/polygenic-risk-calculator/internal/snps"
 )
 
-// Options is the canonical representation of all runtime parameters.
-
 type Options struct {
 	GenotypeFile   string
 	SNPs           []string
@@ -21,7 +19,7 @@ type Options struct {
 	GWASTable      string
 	Output         string
 	Format         string
-	ReferenceTable string // reference stats table name (default: reference_panel)
+	ReferenceTable string
 }
 
 // ParseOptions parses CLI flags and resolves each parameter from CLI/env/config/default.
@@ -45,19 +43,19 @@ func ParseOptions(args []string) (Options, error) {
 	}
 
 	// GWAS Database with Validation
-	if opts.GWASDB == "" {
-		opts.GWASDB = config.GetString("gwas_db_path")
+	if opts.GWASDB != "" {
+		config.Set("gwas_db_path", opts.GWASDB)
 	}
-	if opts.GWASTable == "" {
-		opts.GWASTable = config.GetString("gwas_table")
+	if opts.GWASTable != "" {
+		config.Set("gwas_table", opts.GWASTable)
 	}
 
 	// Canonical SNP resolution (enforce mutual exclusion, requiredness, and validation)
-	if opts.SNPsFile == "" {
-		opts.SNPsFile = config.GetString("snps_file")
+	if opts.SNPsFile != "" {
+		config.Set("snps_file", opts.SNPsFile)
 	}
-	if snps == "" {
-		snps = config.GetString("snps")
+	if snps != "" {
+		config.Set("snps", snps)
 	}
 	if snps != "" {
 		opts.SNPs = strings.Split(snps, ",")
@@ -81,7 +79,7 @@ func ParseOptions(args []string) (Options, error) {
 	if opts.GenotypeFile == "" {
 		errMsgs = append(errMsgs, "--genotype-file or corresponding config key 'genotype_file' is required")
 	}
-	if opts.GWASDB == "" {
+	if opts.GWASDB == "" && config.GetString("gwas_db_path") == "" {
 		errMsgs = append(errMsgs, "--gwas-db is required")
 	}
 	if len(errMsgs) > 0 {

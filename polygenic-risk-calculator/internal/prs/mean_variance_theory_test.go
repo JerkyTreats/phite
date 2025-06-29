@@ -17,8 +17,8 @@ func TestMeanVarianceTheory_KnownHWEPopulation(t *testing.T) {
 	logging.SetSilentLoggingForTest()
 
 	// Enable validation for mathematical correctness testing
-	config.SetForTest("invariance.enable_validation", true)
-	defer config.SetForTest("invariance.enable_validation", false)
+	config.Set("invariance.enable_validation", true)
+	defer config.Set("invariance.enable_validation", false)
 
 	// Known Hardy-Weinberg Equilibrium test case from the brief
 	alleleFreqs := map[string]float64{
