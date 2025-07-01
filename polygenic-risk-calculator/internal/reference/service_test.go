@@ -111,7 +111,7 @@ func TestReferenceService_LoadModel_Success(t *testing.T) {
 			assert.Contains(t, query, "WHERE trait = ?")
 			assert.Equal(t, "Height", args[0])
 			return []map[string]interface{}{
-				{"rsid": "rs123", "beta": 0.5, "risk_allele": "A", "chr": "1", "chr_pos": int64(1000), "ref": "A", "alt": "G"},
+				{"rsid": "rs123", "beta": 0.5, "risk_allele": "A", "chr": "1", "chr_pos": int64(1000), "ref_allele": "A", "alt_allele": "G"},
 			}, nil
 		},
 	}
@@ -171,8 +171,8 @@ func TestReferenceService_GetAlleleFrequenciesForTraits_Success(t *testing.T) {
 	assert.NoError(t, err)
 
 	traitVariants := map[string][]model.Variant{
-		"Height": {{ID: "1:1000:A:G"}},
-		"BMI":    {{ID: "2:2000:C:T"}},
+		"Height": {{ID: "1:1000:A:G", Chromosome: "1", Position: 1000}},
+		"BMI":    {{ID: "2:2000:C:T", Chromosome: "2", Position: 2000}},
 	}
 
 	results, err := service.GetAlleleFrequenciesForTraits(context.Background(), traitVariants, eur)
@@ -202,7 +202,7 @@ func TestReferenceService_GetAlleleFrequenciesForTraits_NoFrequencyData(t *testi
 	assert.NoError(t, err)
 
 	traitVariants := map[string][]model.Variant{
-		"Height": {{ID: "1:1000:A:G"}},
+		"Height": {{ID: "1:1000:A:G", Chromosome: "1", Position: 1000}},
 	}
 	results, err := service.GetAlleleFrequenciesForTraits(context.Background(), traitVariants, eur)
 	assert.NoError(t, err)
@@ -240,7 +240,7 @@ func TestReferenceService_GetReferenceStats_CacheMissAndCompute(t *testing.T) {
 	mockModelRepo := &mockRepo{
 		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
 			return []map[string]interface{}{
-				{"rsid": "rs123", "beta": 0.5, "risk_allele": "A", "chr": "1", "chr_pos": int64(123), "ref": "A", "alt": "G"},
+				{"rsid": "rs123", "beta": 0.5, "risk_allele": "A", "chr": "1", "chr_pos": int64(123), "ref_allele": "A", "alt_allele": "G"},
 			}, nil
 		},
 	}
@@ -297,8 +297,8 @@ func TestReferenceService_GetAlleleFrequenciesForTraits_VariantDeduplication(t *
 	assert.NoError(t, err)
 
 	traitVariants := map[string][]model.Variant{
-		"Height": {{ID: "1:1000:A:G"}},
-		"BMI":    {{ID: "1:1000:A:G"}},
+		"Height": {{ID: "1:1000:A:G", Chromosome: "1", Position: 1000}},
+		"BMI":    {{ID: "1:1000:A:G", Chromosome: "1", Position: 1000}},
 	}
 	results, err := service.GetAlleleFrequenciesForTraits(context.Background(), traitVariants, eur)
 	assert.NoError(t, err)
@@ -320,7 +320,7 @@ func TestReferenceService_GetAlleleFrequenciesForTraits_DBError(t *testing.T) {
 	assert.NoError(t, err)
 
 	traitVariants := map[string][]model.Variant{
-		"Height": {{ID: "1:1000:A:G"}},
+		"Height": {{ID: "1:1000:A:G", Chromosome: "1", Position: 1000}},
 	}
 	_, err = service.GetAlleleFrequenciesForTraits(context.Background(), traitVariants, eur)
 	assert.Error(t, err)
@@ -340,12 +340,12 @@ func TestReferenceService_GetReferenceStatsBatch_Success(t *testing.T) {
 			trait := args[0].(string)
 			if trait == "Height" {
 				return []map[string]interface{}{
-					{"rsid": "rs1", "beta": 0.1, "risk_allele": "G", "chr": "1", "chr_pos": int64(100), "ref": "A", "alt": "G"},
+					{"rsid": "rs1", "beta": 0.1, "risk_allele": "G", "chr": "1", "chr_pos": int64(100), "ref_allele": "A", "alt_allele": "G"},
 				}, nil
 			}
 			if trait == "BMI" {
 				return []map[string]interface{}{
-					{"rsid": "rs2", "beta": -0.2, "risk_allele": "T", "chr": "2", "chr_pos": int64(200), "ref": "C", "alt": "T"},
+					{"rsid": "rs2", "beta": -0.2, "risk_allele": "T", "chr": "2", "chr_pos": int64(200), "ref_allele": "C", "alt_allele": "T"},
 				}, nil
 			}
 			return nil, fmt.Errorf("unexpected trait: %s", trait)
@@ -362,8 +362,8 @@ func TestReferenceService_GetReferenceStatsBatch_Success(t *testing.T) {
 		{Ancestry: eur, Trait: "BMI"},
 	}
 
-	results, err := service.GetReferenceStatsBatch(context.Background(), requests)
-	assert.NoError(t, err)
+	results, errs := service.GetReferenceStatsBatch(context.Background(), requests)
+	assert.Empty(t, errs)
 	assert.Len(t, results, 2)
 
 	heightKey := fmt.Sprintf("%s|%s|%s", "EUR", "Height", "Height")
@@ -379,8 +379,8 @@ func TestReferenceService_GetReferenceStatsBatch_EmptyInput(t *testing.T) {
 	service, err := NewReferenceService(&mockRepo{}, &mockRepo{}, &mockCache{})
 	assert.NoError(t, err)
 
-	results, err := service.GetReferenceStatsBatch(context.Background(), []ReferenceStatsRequest{})
-	assert.NoError(t, err)
+	results, errs := service.GetReferenceStatsBatch(context.Background(), []ReferenceStatsRequest{})
+	assert.Empty(t, errs)
 	assert.Empty(t, results)
 }
 
@@ -399,6 +399,53 @@ func TestReferenceService_GetReferenceStatsBatch_ModelLoadError(t *testing.T) {
 	requests := []ReferenceStatsRequest{
 		{Ancestry: eur, Trait: "Height"},
 	}
-	_, err = service.GetReferenceStatsBatch(context.Background(), requests)
-	assert.Error(t, err)
+	results, errs := service.GetReferenceStatsBatch(context.Background(), requests)
+	assert.NotEmpty(t, errs)
+	assert.Empty(t, results)
+	assert.Len(t, errs, 1)
+	assert.Contains(t, errs[0].Error(), "failed to load PRS model for trait Height")
+}
+
+func TestReferenceService_GetReferenceStatsBatch_PartialSuccess(t *testing.T) {
+	mockGnomadRepo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			return []map[string]interface{}{
+				{"chrom": "1", "pos": int64(100), "ref": "A", "alt": "G", "AF_nfe": 0.1},
+			}, nil
+		},
+	}
+	mockModelRepo := &mockRepo{
+		queryFunc: func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
+			trait := args[0].(string)
+			if trait == "Height" {
+				return []map[string]interface{}{
+					{"rsid": "rs1", "beta": 0.1, "risk_allele": "G", "chr": "1", "chr_pos": int64(100), "ref_allele": "A", "alt_allele": "G"},
+				}, nil
+			}
+			if trait == "BMI" {
+				// Simulate an error for this trait
+				return nil, errors.New("db error for BMI")
+			}
+			return nil, fmt.Errorf("unexpected trait: %s", trait)
+		},
+	}
+	service, err := NewReferenceService(mockGnomadRepo, mockModelRepo, &mockCache{})
+	assert.NoError(t, err)
+
+	eur, err := ancestry.New("EUR", "")
+	assert.NoError(t, err)
+
+	requests := []ReferenceStatsRequest{
+		{Ancestry: eur, Trait: "Height"},
+		{Ancestry: eur, Trait: "BMI"},
+	}
+
+	results, errs := service.GetReferenceStatsBatch(context.Background(), requests)
+	assert.Len(t, errs, 1)
+	assert.Contains(t, errs[0].Error(), "failed to load PRS model for trait BMI")
+
+	assert.Len(t, results, 1)
+	heightKey := fmt.Sprintf("%s|%s|%s", "EUR", "Height", "Height")
+	assert.Contains(t, results, heightKey)
+	assert.NotNil(t, results[heightKey])
 }

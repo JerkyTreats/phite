@@ -3,7 +3,6 @@ package model
 
 import (
 	"fmt"
-	"strings"
 )
 
 // GWASSNPRecord represents a single SNP record from GWAS summary statistics.
@@ -107,24 +106,4 @@ func (m *PRSModel) GetEffectSizes() map[string]float64 {
 		effects[v.ID] = v.EffectWeight
 	}
 	return effects
-}
-
-// FormatVariantID formats a variant ID from its components.
-func FormatVariantID(chrom string, pos int64, ref, alt string) string {
-	return fmt.Sprintf("%s:%d:%s:%s", chrom, pos, ref, alt)
-}
-
-// ParseVariantID parses a variant ID into its components.
-func ParseVariantID(id string) (chrom string, pos int64, ref, alt string, err error) {
-	parts := strings.Split(id, ":")
-	if len(parts) != 4 {
-		return "", 0, "", "", fmt.Errorf("invalid variant ID format: %s", id)
-	}
-
-	var position int64
-	if _, err := fmt.Sscanf(parts[1], "%d", &position); err != nil {
-		return "", 0, "", "", fmt.Errorf("invalid position in variant ID: %s", id)
-	}
-
-	return parts[0], position, parts[2], parts[3], nil
 }

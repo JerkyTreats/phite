@@ -112,9 +112,15 @@ func (s *ReferenceService) LoadModel(ctx context.Context, trait string) (*model.
 	for _, row := range rows {
 		variant, err := s.convertRowToVariant(row)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert row to variant: %w", err)
+			rsid := utils.ToString(row["rsid"])
+			logging.Warn("Skipping variant %q in trait %q due to conversion error: %v", rsid, trait, err)
+			continue
 		}
 		variants = append(variants, variant)
+	}
+
+	if len(variants) == 0 {
+		return nil, fmt.Errorf("no valid variants found for trait %s after filtering", trait)
 	}
 
 	prsModel := &model.PRSModel{
@@ -142,7 +148,12 @@ func (s *ReferenceService) GetAlleleFrequenciesForTraits(ctx context.Context, tr
 	for trait, variants := range traitVariants {
 		logging.Debug("Collecting %d variants for trait %s", len(variants), trait)
 		for _, v := range variants {
-			uniqueVariants[v.ID] = v
+			// Use a key that doesn't rely on ref/alt for uniqueness at this stage
+			key := fmt.Sprintf("%s:%d", v.Chromosome, v.Position)
+			if v.RSID != nil {
+				key = *v.RSID
+			}
+			uniqueVariants[key] = v
 		}
 	}
 
@@ -159,12 +170,12 @@ func (s *ReferenceService) GetAlleleFrequenciesForTraits(ctx context.Context, tr
 	var filters []string
 	var args []interface{}
 	for _, v := range uniqueVariants {
-		if v.Chromosome == "" || v.Position == 0 || v.Ref == "" || v.Alt == "" {
-			logging.Warn("cannot build filter for variant %s, missing chrom/pos/ref/alt", v.ID)
+		if v.Chromosome == "" || v.Position == 0 {
+			logging.Debug("cannot build filter for variant %s, missing chrom/pos", *v.RSID)
 			continue
 		}
-		filters = append(filters, "(chrom = ? AND pos = ? AND ref = ? AND alt = ?)")
-		args = append(args, v.Chromosome, v.Position, v.Ref, v.Alt)
+		filters = append(filters, "(chrom = ? AND pos = ?)")
+		args = append(args, v.Chromosome, v.Position)
 	}
 
 	if len(filters) == 0 {
@@ -203,7 +214,7 @@ func (s *ReferenceService) GetAlleleFrequenciesForTraits(ctx context.Context, tr
 		ref := utils.ToString(row["ref"])
 		alt := utils.ToString(row["alt"])
 
-		variantID := model.FormatVariantID(chrom, pos, ref, alt)
+		variantID := fmt.Sprintf("%s:%d:%s:%s", chrom, pos, ref, alt)
 		allFreqs[variantID] = freq
 
 		// Log which column was used for debugging
@@ -255,19 +266,15 @@ func (s *ReferenceService) convertRowToVariant(row map[string]interface{}) (mode
 	// Get components for variant ID
 	chrom := utils.ToString(row["chr"])
 	pos := utils.ToInt64(row["chr_pos"])
-	ref := utils.ToString(row["ref"])
-	alt := utils.ToString(row["alt"])
+	ref := utils.ToString(row["ref_allele"])
+	alt := utils.ToString(row["alt_allele"])
 
 	if chrom == "" || pos == 0 {
 		return model.Variant{}, fmt.Errorf("missing chromosome or position for rsid %s", rsid)
 	}
 
-	// If ref or alt are missing, we cannot form a fully qualified variant ID for gnomAD lookup.
-	// For now, we allow this and will use the rsid as the ID, but this may fail in downstream functions.
-	variantID := rsid
-	if ref != "" && alt != "" {
-		variantID = model.FormatVariantID(chrom, pos, ref, alt)
-	}
+	// Use chrom:pos:ref:alt format for variant ID to match allele frequency lookups
+	variantID := fmt.Sprintf("%s:%d:%s:%s", chrom, pos, ref, alt)
 
 	// To handle duplicate variants from different studies, append study_id to the variant ID.
 	studyID := utils.ToString(row["study_id"])
@@ -297,7 +304,7 @@ func (s *ReferenceService) convertRowToVariant(row map[string]interface{}) (mode
 // GetReferenceStatsBatch retrieves reference statistics for multiple traits in a single operation.
 // This method optimizes costs by loading all required models, and then making a single
 // consolidated query to get allele frequencies for all variants across all models.
-func (s *ReferenceService) GetReferenceStatsBatch(ctx context.Context, requests []ReferenceStatsRequest) (map[string]*reference_stats.ReferenceStats, error) {
+func (s *ReferenceService) GetReferenceStatsBatch(ctx context.Context, requests []ReferenceStatsRequest) (map[string]*reference_stats.ReferenceStats, []error) {
 	logging.Info("Getting reference stats in batch for %d traits", len(requests))
 
 	if len(requests) == 0 {
@@ -307,6 +314,8 @@ func (s *ReferenceService) GetReferenceStatsBatch(ctx context.Context, requests 
 	ancestryObj := requests[0].Ancestry
 	traitModels := make(map[string]*model.PRSModel)
 	allTraitVariants := make(map[string][]model.Variant)
+	var processingErrors []error
+	const errorCap = 10
 
 	// Step 1: Load the model for each trait and collect all variants.
 	for _, req := range requests {
@@ -315,7 +324,13 @@ func (s *ReferenceService) GetReferenceStatsBatch(ctx context.Context, requests 
 		}
 		prsModel, err := s.LoadModel(ctx, req.Trait)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load PRS model for trait %s: %w", req.Trait, err)
+			err = fmt.Errorf("failed to load PRS model for trait %s: %w", req.Trait, err)
+			processingErrors = append(processingErrors, err)
+			logging.Error(err.Error())
+			if len(processingErrors) >= errorCap {
+				return nil, processingErrors
+			}
+			continue
 		}
 		traitModels[req.Trait] = prsModel
 		allTraitVariants[req.Trait] = prsModel.Variants
@@ -324,18 +339,30 @@ func (s *ReferenceService) GetReferenceStatsBatch(ctx context.Context, requests 
 	// Step 2: Get allele frequencies for all variants across all models in a single bulk query.
 	alleleFrequencies, err := s.GetAlleleFrequenciesForTraits(ctx, allTraitVariants, ancestryObj)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get allele frequencies: %w", err)
+		err = fmt.Errorf("failed to get allele frequencies: %w", err)
+		processingErrors = append(processingErrors, err)
+		logging.Error(err.Error())
+		return make(map[string]*reference_stats.ReferenceStats), processingErrors
 	}
 
 	// Step 3: Compute stats for each trait using its specific model and frequencies.
 	results := make(map[string]*reference_stats.ReferenceStats)
 	for _, req := range requests {
-		prsModel := traitModels[req.Trait]
+		prsModel, ok := traitModels[req.Trait]
+		if !ok {
+			continue
+		}
 		traitFreqs := alleleFrequencies[req.Trait]
 
 		stats, err := reference_stats.Compute(traitFreqs, prsModel.GetEffectSizes())
 		if err != nil {
-			return nil, fmt.Errorf("failed to compute stats for trait %s: %w", req.Trait, err)
+			err = fmt.Errorf("failed to compute stats for trait %s: %w", req.Trait, err)
+			processingErrors = append(processingErrors, err)
+			logging.Error(err.Error())
+			if len(processingErrors) >= errorCap {
+				return results, processingErrors
+			}
+			continue
 		}
 
 		stats.Ancestry = ancestryObj.Code()
@@ -346,8 +373,13 @@ func (s *ReferenceService) GetReferenceStatsBatch(ctx context.Context, requests 
 		results[key] = stats
 	}
 
-	logging.Info("Successfully computed reference stats for %d traits in batch", len(results))
-	return results, nil
+	if len(processingErrors) > 0 {
+		logging.Warn("Computed reference stats for %d traits in batch, but encountered %d errors.", len(results), len(processingErrors))
+	} else {
+		logging.Info("Successfully computed reference stats for %d traits in batch", len(results))
+	}
+
+	return results, processingErrors
 }
 
 // GetReferenceStats retrieves PRS reference statistics for a given ancestry, trait, and model ID.

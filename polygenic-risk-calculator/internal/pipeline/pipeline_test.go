@@ -48,7 +48,7 @@ func setupTestConfig(t *testing.T) {
 	config.Set("gwas_db_path", "testdata/gwas.duckdb")
 	config.Set("gwas_table", "associations_clean")
 	// Configure reference service settings
-	config.Set("reference.model_table", "associations_clean")
+	config.Set("reference.model_table", "associations_with_alleles")
 	config.Set("reference.allele_freq_table", "allele_frequencies")
 
 	// Configure GCP settings (though we might not need them for tests)
@@ -74,10 +74,10 @@ func setupMockPipeline(t *testing.T) (*reference.ReferenceService, reference_cac
 
 // setupMockBigQueryResponses configures realistic mock responses for BigQuery operations
 func setupMockBigQueryResponses(gnomadMock, cacheMock *testutils.MockRepository) {
-	// Mock model loading responses (from associations_clean table)
+	// Mock model loading responses (from associations_with_alleles view)
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
-			// Mock PRS model data from associations_clean table
+		if strings.Contains(query, "associations_with_alleles") && strings.Contains(query, "trait = ?") {
+			// Mock PRS model data from associations_with_alleles view
 			return []map[string]interface{}{
 				{
 					"rsid":             "rs1",
@@ -86,8 +86,8 @@ func setupMockBigQueryResponses(gnomadMock, cacheMock *testutils.MockRepository)
 					"trait":            "height",
 					"chr":              "1",
 					"chr_pos":          int64(1000),
-					"ref":              "G",
-					"alt":              "A",
+					"ref_allele":       "G",
+					"alt_allele":       "A",
 					"risk_allele_freq": 0.3,
 					"other_allele":     "G",
 				},
@@ -98,8 +98,8 @@ func setupMockBigQueryResponses(gnomadMock, cacheMock *testutils.MockRepository)
 					"trait":            "height",
 					"chr":              "1",
 					"chr_pos":          int64(2000),
-					"ref":              "A",
-					"alt":              "G",
+					"ref_allele":       "A",
+					"alt_allele":       "G",
 					"risk_allele_freq": 0.4,
 					"other_allele":     "A",
 				},
@@ -110,8 +110,8 @@ func setupMockBigQueryResponses(gnomadMock, cacheMock *testutils.MockRepository)
 					"trait":            "bmi",
 					"chr":              "1",
 					"chr_pos":          int64(3000),
-					"ref":              "C",
-					"alt":              "T",
+					"ref_allele":       "C",
+					"alt_allele":       "T",
 					"risk_allele_freq": 0.25,
 					"other_allele":     "C",
 				},
@@ -287,7 +287,7 @@ func TestRun_CustomAncestryConfig(t *testing.T) {
 	config.Set("gwas_db_path", "testdata/gwas.duckdb")
 	config.Set("gwas_table", "associations_clean")
 	// Configure reference service settings
-	config.Set("reference.model_table", "associations_clean")
+	config.Set("reference.model_table", "associations_with_alleles")
 	config.Set("reference.allele_freq_table", "allele_frequencies")
 	config.Set("reference.column_mapping", map[string]string{
 		"AF_afr": "AF_afr",
@@ -500,7 +500,7 @@ func TestRun_BulkOperations_AncestryIntegration(t *testing.T) {
 	config.Set("reference.model", "v1")
 	config.Set("gwas_db_path", "testdata/gwas.duckdb")
 	config.Set("gwas_table", "associations_clean")
-	config.Set("reference.model_table", "associations_clean")
+	config.Set("reference.model_table", "associations_with_alleles")
 	config.Set("reference.allele_freq_table", "allele_frequencies")
 	config.Set("reference.column_mapping", map[string]string{
 		"AF_afr": "AF_afr",
@@ -627,7 +627,7 @@ func TestRun_WithMocks_FullPipeline_Success(t *testing.T) {
 	foundFrequencyQuery := false
 
 	for _, call := range gnomadMock.QueryCalls {
-		if strings.Contains(call.Query, "associations_clean") && strings.Contains(call.Query, "trait = ?") {
+		if strings.Contains(call.Query, "associations_with_alleles") && strings.Contains(call.Query, "trait = ?") {
 			foundModelQuery = true
 		}
 		if strings.Contains(call.Query, "gnomad_genomes_v3_1_1_hgdp_1kg") {
@@ -688,7 +688,7 @@ func TestRun_WithMocks_CacheHit_Scenario(t *testing.T) {
 
 	// Setup model loading mock
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
+		if strings.Contains(query, "associations_with_alleles") && strings.Contains(query, "trait = ?") {
 			return []map[string]interface{}{
 				{
 					"rsid":             "rs1",
@@ -697,8 +697,8 @@ func TestRun_WithMocks_CacheHit_Scenario(t *testing.T) {
 					"trait":            "height",
 					"chr":              "1",
 					"chr_pos":          int64(1000),
-					"ref":              "G",
-					"alt":              "A",
+					"ref_allele":       "G",
+					"alt_allele":       "A",
 					"risk_allele_freq": 0.3,
 					"other_allele":     "G",
 				},
@@ -1001,7 +1001,7 @@ func TestRetrieveAllDataBulk_FullCacheHit(t *testing.T) {
 
 	// Mock model loading
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
+		if strings.Contains(query, "associations_with_alleles") && strings.Contains(query, "trait = ?") {
 			return []map[string]interface{}{
 				{
 					"rsid":             "rs1",
@@ -1010,8 +1010,8 @@ func TestRetrieveAllDataBulk_FullCacheHit(t *testing.T) {
 					"trait":            "height",
 					"chr":              "1",
 					"chr_pos":          int64(1000),
-					"ref":              "G",
-					"alt":              "A",
+					"ref_allele":       "G",
+					"alt_allele":       "A",
 					"risk_allele_freq": 0.3,
 					"other_allele":     "G",
 				},
@@ -1175,7 +1175,7 @@ func TestRetrieveAllDataBulk_ModelLoadingFailure(t *testing.T) {
 
 	// Mock model loading failure
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
+		if strings.Contains(query, "associations_with_alleles") && strings.Contains(query, "trait = ?") {
 			return nil, assert.AnError
 		}
 		return []map[string]interface{}{}, nil
@@ -1218,7 +1218,7 @@ func TestRetrieveAllDataBulk_IncompleteAlleleFrequencies(t *testing.T) {
 
 	// Mock model loading success but incomplete frequency data
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
+		if strings.Contains(query, "associations_with_alleles") && strings.Contains(query, "trait = ?") {
 			return []map[string]interface{}{
 				{
 					"rsid":             "rs1",
@@ -1227,8 +1227,8 @@ func TestRetrieveAllDataBulk_IncompleteAlleleFrequencies(t *testing.T) {
 					"trait":            "height",
 					"chr":              "1",
 					"chr_pos":          int64(1000),
-					"ref":              "G",
-					"alt":              "A",
+					"ref_allele":       "G",
+					"alt_allele":       "A",
 					"risk_allele_freq": 0.3,
 					"other_allele":     "G",
 				},
@@ -1280,7 +1280,7 @@ func TestRetrieveAllDataBulk_CorruptedCacheData(t *testing.T) {
 	refService, _, gnomadMock, cacheMock := setupMockPipeline(t)
 
 	gnomadMock.QueryFunc = func(ctx context.Context, query string, args ...interface{}) ([]map[string]interface{}, error) {
-		if strings.Contains(query, "associations_clean") && strings.Contains(query, "trait = ?") {
+		if strings.Contains(query, "associations_with_alleles") && strings.Contains(query, "trait = ?") {
 			return []map[string]interface{}{
 				{
 					"rsid":             "rs1",
@@ -1289,8 +1289,8 @@ func TestRetrieveAllDataBulk_CorruptedCacheData(t *testing.T) {
 					"trait":            "height",
 					"chr":              "1",
 					"chr_pos":          int64(1000),
-					"ref":              "G",
-					"alt":              "A",
+					"ref_allele":       "G",
+					"alt_allele":       "A",
 					"risk_allele_freq": 0.3,
 					"other_allele":     "G",
 				},

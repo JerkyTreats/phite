@@ -1,99 +1,110 @@
 # Polygenic Risk Calculator
 
-The Polygenic Risk Calculator is a command-line tool for computing polygenic risk scores (PRS) from user genotype data and GWAS summary statistics. It is part of the PHITE project and is designed for researchers, clinicians, and developers working with genetic risk prediction.
+A command-line tool for computing polygenic risk scores (PRS) from user genotype data and GWAS summary statistics. Part of the PHITE project.
 
 ## Features
 
-- **Flexible Input:** Supports genotype files, GWAS summary statistics in DuckDB, and SNP selection via file or CLI.
-- **Robust Pipeline:** Modular pipeline for genotype parsing, GWAS data loading, PRS calculation, normalization, and trait summary generation.
-- **CLI-Driven:** All required parameters are configurable via command-line flags for reproducible, scriptable workflows.
-- **Structured Output:** Supports multiple output formats and destinations.
-- **Centralized Logging:** Consistent, user-meaningful logs for all major steps and errors.
-- **Tested, Modular Codebase:** Built using TDD and idiomatic Go best practices.
+- **Genotype Parsing**: Supports AncestryDNA and 23andMe format files
+- **GWAS Integration**: Works with DuckDB databases containing GWAS summary statistics
+- **Flexible SNP Selection**: Specify SNPs via comma-separated list or file
+- **PRS Calculation**: Computes polygenic risk scores with normalization
+- **Multiple Output Formats**: JSON and CSV output support
+- **Comprehensive Logging**: Structured logging for all operations
 
 ## Installation
 
-1. Clone the repository:
-   ```sh
-   git clone https://github.com/your-org/polygenic-risk-calculator.git
-   cd polygenic-risk-calculator
-   ```
-2. Build the CLI:
-   ```sh
-   go build -o risk-calculator ./cmd/risk-calculator
-   ```
+```sh
+git clone <repository-url>
+cd polygenic-risk-calculator
+go build -o risk-calculator ./cmd/risk-calculator
+```
 
 ## Usage
 
-Run the calculator with required arguments:
+### Basic Command
 
 ```sh
 ./risk-calculator \
-  --genotype-file <genotype.vcf|txt|...> \
+  --genotype-file <genotype.txt> \
   --gwas-db <gwas.duckdb> \
-  --snps <rsID1,rsID2,...> | --snps-file <snps.txt> \
-  [--gwas-table <table>] \
-  [--reference-table <table>] \
-  [--output <output.json|csv|...>] \
-  [--format <json|csv|...>]
+  --snps <rsID1,rsID2,...> \
+  [--output <results.json>] \
+  [--format <json|csv>]
 ```
 
 ### Required Arguments
-- `--genotype-file`   : Path to the user genotype file
-- `--gwas-db`         : Path to the GWAS summary statistics DuckDB database
-- `--snps`            : Comma-separated list of SNP IDs (mutually exclusive with `--snps-file`)
-- `--snps-file`       : File containing SNP IDs (one per line)
+
+- `--genotype-file`: Path to genotype file (AncestryDNA/23andMe format)
+- `--gwas-db`: Path to GWAS summary statistics DuckDB database
+- `--snps`: Comma-separated list of SNP IDs (or use `--snps-file`)
 
 ### Optional Arguments
-- `--gwas-table`      : GWAS table name (default: first table in DB)
-- `--reference-table` : Reference stats table name (default: `reference_panel`)
-- `--output`          : Output file path (default: stdout)
-- `--format`          : Output format (`json`, `csv`, etc.; default: `json`)
+
+- `--snps-file`: File containing SNP IDs (one per line, alternative to `--snps`)
+- `--gwas-table`: GWAS table name (default: first table in database)
+- `--reference-table`: Reference stats table name (default: `reference_panel`)
+- `--output`: Output file path (default: stdout)
+- `--format`: Output format (`json` or `csv`, default: `json`)
 
 ### Example
 
 ```sh
 ./risk-calculator \
-  --genotype-file sample.vcf \
-  --gwas-db gwas.duckdb \
-  --snps-file snps.txt \
+  --genotype-file sample_genotype.txt \
+  --gwas-db gwas_summary.duckdb \
+  --snps rs190214723,rs3131972,rs12562034 \
   --output results.json \
   --format json
 ```
 
 ## Data Requirements
-- **Genotype File:** Supported formats include VCF and simple text (see documentation for details).
-- **GWAS Database:** DuckDB format with summary statistics. Table schema must match the canonical data model (see `.agent/data_model.md`).
-- **SNPs:** Provide either a list (`--snps`) or a file (`--snps-file`).
-- **Reference Table:** Used for normalization; defaults to `reference_panel` if not specified.
+
+### Genotype File Format
+Tab-delimited file with header row:
+```
+rsid	chromosome	position	allele1	allele2
+rs190214723	1	693625	T	T
+rs3131972	1	752721	G	G
+```
+
+### GWAS Database
+DuckDB format with required columns:
+- `rsid`: SNP identifier
+- `chromosome`: Chromosome number
+- `position`: Genomic position
+- `risk_allele`: Risk allele
+- `beta`: Effect size
+- `trait`: Trait name
 
 ## Output
-- **PRS Results:** Polygenic risk scores for each trait.
-- **Normalized PRS:** Scores normalized using reference panel statistics.
-- **Trait Summaries:** Optional, depending on output format.
-- **Missing SNPs:** List of SNPs missing from input or reference data.
 
-Output is written to the specified file or stdout, in the selected format.
+The tool outputs:
+- **Raw PRS Score**: Unnormalized polygenic risk score
+- **Normalized PRS**: Z-score and percentile relative to reference population
+- **Trait Summaries**: Risk level assessment and SNP contribution details
+- **Missing SNPs**: List of SNPs not found in input or reference data
 
-## Logging
-- Logs are written at INFO and ERROR levels to standard error.
-- All major steps and errors are logged with context.
+## Development
 
-## Testing
-- All modules are tested using Go's built-in testing framework.
-- Run tests with:
-  ```sh
-  go test ./...
-  ```
+### Project Structure
+- `cmd/risk-calculator/`: CLI entrypoint
+- `internal/`: Core implementation modules
+- `.agent/`: Development documentation and specifications
 
-## Project Structure
-- `cmd/`      : CLI entrypoint
-- `internal/` : Modular pipeline and core logic (genotype, gwas, prs, output, etc.)
-- `.agent/`   : Developer docs, agent briefs, data models
+### Testing
+```sh
+go test ./...
+```
+
+### Configuration
+The tool supports configuration via:
+- Command-line flags (highest precedence)
+- Environment variables
+- Configuration files
 
 ## References
-- [Canonical Data Model](.agent/data_model.md)
+
+- [Data Model Specification](.agent/data_model.md)
 - [Developer Guide](.agent/README.md)
 
----
-For questions or support, see the developer guide or contact the PHITE project maintainers.
+For questions or support, see the developer documentation or contact the PHITE project maintainers.

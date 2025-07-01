@@ -34,6 +34,7 @@ type PipelineOutput struct {
 	NormalizedPRS  map[string]prs.NormalizedPRS // per trait
 	PRSResults     map[string]prs.PRSResult     // per trait
 	SNPSMissing    []string
+	Errors         []error
 }
 
 // PipelineRequirements holds all data requirements identified during analysis phase
@@ -51,6 +52,7 @@ type BulkDataContext struct {
 	ComputedStats     map[string]*reference_stats.ReferenceStats // computed for cache misses
 	PRSModels         map[string]*model.PRSModel                 // trait -> model
 	TraitSNPs         map[string][]model.AnnotatedSNP            // trait -> SNPs
+	Errors            []error
 }
 
 // ProcessingResults holds all computed results before final output
@@ -59,6 +61,7 @@ type ProcessingResults struct {
 	NormalizedPRS  map[string]prs.NormalizedPRS
 	PRSResults     map[string]prs.PRSResult
 	CacheEntries   []reference_cache.CacheEntry // for bulk storage
+	Errors         []error
 }
 
 // BulkOperationContext holds all cache operations that need to be executed in bulk.
@@ -114,6 +117,12 @@ func Run(input PipelineInput, refService ...*reference.ReferenceService) (Pipeli
 	}
 	logging.Info("Phase 2 complete: Retrieved data for %d traits with %d cache hits, %d computed stats",
 		len(requirements.TraitSet), len(bulkData.CachedStats), len(bulkData.ComputedStats))
+	if len(bulkData.Errors) > 0 {
+		logging.Warn("Phase 2 encountered %d errors.", len(bulkData.Errors))
+		for _, e := range bulkData.Errors {
+			logging.Error("- %v", e)
+		}
+	}
 
 	// ==================== PHASE 3: IN-MEMORY PROCESSING ====================
 	logging.Info("Phase 3: Processing all traits in-memory...")
@@ -124,22 +133,31 @@ func Run(input PipelineInput, refService ...*reference.ReferenceService) (Pipeli
 	}
 	logging.Info("Phase 3 complete: Processed %d traits, generated %d summaries",
 		len(requirements.TraitSet), len(results.TraitSummaries))
+	if len(results.Errors) > 0 {
+		logging.Warn("Phase 3 finished with %d total errors.", len(results.Errors))
+	}
 
 	// ==================== PHASE 4: BULK STORAGE ====================
-	logging.Info("Phase 4: Executing bulk storage operations...")
-	err = storeBulkResults(ctx, results, rs)
-	if err != nil {
-		logging.Error("Phase 4 failed - Bulk storage error: %v", err)
-		return PipelineOutput{}, fmt.Errorf("bulk storage failed: %w", err)
+	if len(results.Errors) >= 10 {
+		logging.Error("Error cap reached. Aborting before Phase 4 (Bulk Storage).")
+	} else {
+		logging.Info("Phase 4: Executing bulk storage operations...")
+		err = storeBulkResults(ctx, results, rs)
+		if err != nil {
+			logging.Error("Phase 4 failed - Bulk storage error: %v", err)
+			return PipelineOutput{}, fmt.Errorf("bulk storage failed: %w", err)
+		}
+		logging.Info("Phase 4 complete: Stored %d cache entries", len(results.CacheEntries))
 	}
-	logging.Info("Phase 4 complete: Stored %d cache entries", len(results.CacheEntries))
 
 	logging.Info("Optimized pipeline completed successfully. Total traits processed: %d", len(requirements.TraitSet))
+
 	return PipelineOutput{
 		TraitSummaries: results.TraitSummaries,
 		NormalizedPRS:  results.NormalizedPRS,
 		PRSResults:     results.PRSResults,
 		SNPSMissing:    genoOut.SNPsMissing,
+		Errors:         results.Errors,
 	}, nil
 }
 
@@ -231,6 +249,7 @@ func retrieveAllDataBulk(ctx context.Context, requirements *PipelineRequirements
 	}
 
 	computedStats := make(map[string]*reference_stats.ReferenceStats)
+	var allErrors []error
 
 	if len(cacheMisses) > 0 {
 		// BULK OPERATION 3: Single bulk reference stats computation for all cache misses
@@ -244,9 +263,14 @@ func retrieveAllDataBulk(ctx context.Context, requirements *PipelineRequirements
 			})
 		}
 
-		bulkStats, err := refService.GetReferenceStatsBatch(ctx, statsRequests)
-		if err != nil {
-			return nil, fmt.Errorf("bulk reference stats computation failed: %w", err)
+		// This returns
+		bulkStats, errs := refService.GetReferenceStatsBatch(ctx, statsRequests)
+		if len(errs) > 0 {
+			logging.Warn("Encountered %d errors during bulk reference stats computation", len(errs))
+			allErrors = append(allErrors, errs...)
+			if len(allErrors) >= 10 {
+				return nil, fmt.Errorf("error cap of 10 reached, aborting pipeline")
+			}
 		}
 
 		// Process bulk stats results
@@ -255,7 +279,7 @@ func retrieveAllDataBulk(ctx context.Context, requirements *PipelineRequirements
 			if stats, found := bulkStats[key]; found {
 				computedStats[trait] = stats
 			} else {
-				return nil, fmt.Errorf("no reference stats computed for trait %s", trait)
+				logging.Warn("No reference stats computed for trait %s, likely due to a processing error.", trait)
 			}
 		}
 	}
@@ -278,6 +302,7 @@ func retrieveAllDataBulk(ctx context.Context, requirements *PipelineRequirements
 		CachedStats:   cacheResults,
 		ComputedStats: computedStats,
 		TraitSNPs:     traitSNPs,
+		Errors:        allErrors,
 	}, nil
 }
 
@@ -287,6 +312,7 @@ func processAllTraitsInMemory(requirements *PipelineRequirements, bulkData *Bulk
 	prsResults := make(map[string]prs.PRSResult)
 	summaries := make([]output.TraitSummary, 0, len(requirements.TraitSet))
 	cacheEntries := make([]reference_cache.CacheEntry, 0)
+	pipelineErrors := make([]error, 0)
 
 	ancestryCode := requirements.AncestryObj.Code()
 
@@ -303,7 +329,10 @@ func processAllTraitsInMemory(requirements *PipelineRequirements, bulkData *Bulk
 		// Calculate PRS using pre-loaded data
 		prsResult, err := prs.CalculatePRS(traitSNPs)
 		if err != nil {
-			return nil, fmt.Errorf("failed to calculate PRS for trait %s: %w", trait, err)
+			err = fmt.Errorf("failed to calculate PRS for trait %s: %w", trait, err)
+			pipelineErrors = append(pipelineErrors, err)
+			logging.Error(err.Error())
+			continue
 		}
 		prsResults[trait] = prsResult
 
@@ -326,7 +355,8 @@ func processAllTraitsInMemory(requirements *PipelineRequirements, bulkData *Bulk
 				Stats: refStats,
 			})
 		} else {
-			return nil, fmt.Errorf("no reference stats available for trait %s", trait)
+			logging.Warn("No reference stats available for trait %s, skipping processing. Error likely occurred in Phase 2.", trait)
+			continue
 		}
 
 		// Normalize PRS using pre-loaded reference stats
@@ -343,21 +373,29 @@ func processAllTraitsInMemory(requirements *PipelineRequirements, bulkData *Bulk
 
 			norm, err := prs.NormalizePRS(prsResult, modelRef)
 			if err != nil {
-				return nil, fmt.Errorf("failed to normalize PRS for trait %s: %w", trait, err)
+				err = fmt.Errorf("failed to normalize PRS for trait %s: %w", trait, err)
+				pipelineErrors = append(pipelineErrors, err)
+				logging.Error(err.Error())
+				continue
 			}
 			normPRSs[trait] = norm
 		}
 
-		// Generate trait summary
-		ts := output.GenerateTraitSummaries(traitSNPs, normPRSs[trait])
-		summaries = append(summaries, ts...)
+		// Generate trait summary only if normalization was successful
+		if norm, ok := normPRSs[trait]; ok {
+			ts := output.GenerateTraitSummaries(traitSNPs, norm)
+			summaries = append(summaries, ts...)
+		}
 	}
+
+	allErrors := append(bulkData.Errors, pipelineErrors...)
 
 	return &ProcessingResults{
 		TraitSummaries: summaries,
 		NormalizedPRS:  normPRSs,
 		PRSResults:     prsResults,
 		CacheEntries:   cacheEntries,
+		Errors:         allErrors,
 	}, nil
 }
 
