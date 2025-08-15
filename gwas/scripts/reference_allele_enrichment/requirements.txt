@@ -1,0 +1,8 @@
+duckdb
+pandas
+requests
+google-cloud-bigquery
+google-cloud-bigquery-storage
+pyarrow
+tqdm
+db-dtypes

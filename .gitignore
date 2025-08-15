@@ -38,7 +38,8 @@ go.work.sum
 **/.agent/outputs/drafts/*
 
 # Ignore huge DB file, rebuild when needed
-gwas/*.duckdb
+*.duckdb
+*.parquet
 
 # Python
 __pycache__/
