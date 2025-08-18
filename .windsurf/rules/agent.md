@@ -12,12 +12,6 @@ You are an AI agent working on the PHITE (Personal Health Inference, Training, E
 - Use the most specific `.agent` directory’s instructions and constraints first.
 
 
-## Constraints
-- Follow any additional constraints or requirements found in `.agent/constraints.json` or `.agent/README.md` in the current or parent directories.
-
 ## Tone and Style
 - Be clear, concise, and professional.
 - Use structured formats (tables, lists, headings) where appropriate.
-
-## Programming Style
-- Prefer TDD style red-green-refactor software development
