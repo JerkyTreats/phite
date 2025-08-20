@@ -1,0 +1,6 @@
+{
+  "androidPlatforms": ["android-36", "android-35"],
+  "androidBuildTools": ["36.0.0", "35.0.0"],
+  "androidCmdlineToolsVersion": "11076708",
+  "flutterChannel": "stable"
+}

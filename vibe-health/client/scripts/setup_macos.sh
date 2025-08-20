@@ -9,9 +9,9 @@ set -euo pipefail
 
 # Config
 SDK_ROOT="${HOME}/Library/Android/sdk"
-CMDLINE_ZIP_URL="https://dl.google.com/android/repository/commandlinetools-mac-11076708_latest.zip"
-BUILD_TOOLS=("36.0.0" "35.0.0")
-PLATFORMS=("android-36" "android-35")
+# Load shared versions from JSON using jq
+SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+VERSIONS_JSON="${SCRIPT_DIR}/../../versions.json"
 
 detect_shell_rc() {
   if [[ -n "${ZSH_VERSION-}" ]]; then echo "${HOME}/.zshrc"; return; fi
@@ -28,12 +28,13 @@ ensure_line_in_file() {
 echo "==> Ensuring Homebrew..."
 if ! command -v brew >/dev/null 2>&1; then
   echo "Homebrew not found. Installing (requires sudo) ..."
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  exit 1
 fi
 
-echo "==> Installing Temurin (OpenJDK) and Flutter..."
+echo "==> Installing Temurin (OpenJDK), Flutter, and jq..."
 brew install --cask temurin >/dev/null || true
 brew install --cask flutter >/dev/null || true
+brew install jq >/dev/null || true
 
 # Ensure flutter is on PATH for this session
 if ! command -v flutter >/dev/null 2>&1; then
@@ -43,6 +44,23 @@ if ! command -v flutter >/dev/null 2>&1; then
     export PATH="/usr/local/Caskroom/flutter/latest/flutter/bin:${PATH}"
   fi
 fi
+
+# Parse versions.json
+ANDROID_CMDLINE_TOOLS_VERSION="$(jq -r '.androidCmdlineToolsVersion' "${VERSIONS_JSON}")"
+
+# Build arrays in a Bash 3-compatible way (macOS default Bash lacks 'mapfile')
+ANDROID_PLATFORMS=()
+while IFS= read -r line; do
+  ANDROID_PLATFORMS+=("$line")
+done < <(jq -r '.androidPlatforms[]' "${VERSIONS_JSON}")
+
+ANDROID_BUILD_TOOLS=()
+while IFS= read -r line; do
+  ANDROID_BUILD_TOOLS+=("$line")
+done < <(jq -r '.androidBuildTools[]' "${VERSIONS_JSON}")
+
+# Compose OS-specific cmdline tools URL using shared version token
+CMDLINE_ZIP_URL="https://dl.google.com/android/repository/commandlinetools-mac-${ANDROID_CMDLINE_TOOLS_VERSION}_latest.zip"
 
 echo "==> Preparing Android SDK directories at ${SDK_ROOT} ..."
 mkdir -p "${SDK_ROOT}/cmdline-tools" "${SDK_ROOT}/platform-tools"
@@ -61,15 +79,19 @@ export ANDROID_SDK_ROOT="${SDK_ROOT}"
 export ANDROID_HOME="${SDK_ROOT}"
 export PATH="${SDK_ROOT}/cmdline-tools/latest/bin:${SDK_ROOT}/platform-tools:${PATH}"
 
+# Silence Java restricted method warnings for tools launched by this script
+# Applies to sdkmanager and related Java processes only in this session
+export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} --enable-native-access=ALL-UNNAMED"
+
 echo "==> Accepting Android SDK licenses ..."
 yes | sdkmanager --licenses >/dev/null || true
 
 echo "==> Installing Android platform-tools, platforms and build-tools ..."
 sdkmanager --install "platform-tools" >/dev/null || true
-for p in "${PLATFORMS[@]}"; do
+for p in "${ANDROID_PLATFORMS[@]}"; do
   sdkmanager --install "platforms;${p}" >/dev/null || true
 done
-for b in "${BUILD_TOOLS[@]}"; do
+for b in "${ANDROID_BUILD_TOOLS[@]}"; do
   sdkmanager --install "build-tools;${b}" >/dev/null || true
 done
 

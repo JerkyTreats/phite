@@ -8,9 +8,9 @@ set -euo pipefail
 
 # Config
 SDK_ROOT="${HOME}/Android/sdk"
-CMDLINE_ZIP_URL="https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
-BUILD_TOOLS=("36.0.0" "35.0.0")
-PLATFORMS=("android-36" "android-35")
+# Load shared versions from JSON using jq
+SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+VERSIONS_JSON="${SCRIPT_DIR}/../../versions.json"
 FLUTTER_DIR="${HOME}/flutter"
 
 detect_shell_rc() {
@@ -26,13 +26,22 @@ ensure_line_in_file() {
 
 echo "==> Installing prerequisites (apt) ..."
 sudo apt-get update -y
-sudo apt-get install -y curl unzip zip git xz-utils libglu1-mesa default-jdk
+sudo apt-get install -y curl unzip zip git xz-utils libglu1-mesa default-jdk jq
 
-echo "==> Installing Flutter (stable) to ${FLUTTER_DIR} ..."
+# Parse versions.json
+ANDROID_CMDLINE_TOOLS_VERSION="$(jq -r '.androidCmdlineToolsVersion' "${VERSIONS_JSON}")"
+mapfile -t ANDROID_PLATFORMS < <(jq -r '.androidPlatforms[]' "${VERSIONS_JSON}")
+mapfile -t ANDROID_BUILD_TOOLS < <(jq -r '.androidBuildTools[]' "${VERSIONS_JSON}")
+FLUTTER_CHANNEL="$(jq -r '.flutterChannel' "${VERSIONS_JSON}")"
+
+# Compose OS-specific cmdline tools URL using shared version token
+CMDLINE_ZIP_URL="https://dl.google.com/android/repository/commandlinetools-linux-${ANDROID_CMDLINE_TOOLS_VERSION}_latest.zip"
+
+echo "==> Installing Flutter (${FLUTTER_CHANNEL}) to ${FLUTTER_DIR} ..."
 if [[ ! -d "${FLUTTER_DIR}" ]]; then
-  git clone https://github.com/flutter/flutter.git -b stable "${FLUTTER_DIR}"
+  git clone https://github.com/flutter/flutter.git -b "${FLUTTER_CHANNEL}" "${FLUTTER_DIR}"
 else
-  (cd "${FLUTTER_DIR}" && git fetch && git checkout stable && git pull)
+  (cd "${FLUTTER_DIR}" && git fetch && git checkout "${FLUTTER_CHANNEL}" && git pull)
 fi
 export PATH="${FLUTTER_DIR}/bin:${PATH}"
 
@@ -57,10 +66,10 @@ yes | sdkmanager --licenses >/dev/null || true
 
 echo "==> Installing Android platform-tools, platforms and build-tools ..."
 sdkmanager --install "platform-tools" >/dev/null || true
-for p in "${PLATFORMS[@]}"; do
+for p in "${ANDROID_PLATFORMS[@]}"; do
   sdkmanager --install "platforms;${p}" >/dev/null || true
 done
-for b in "${BUILD_TOOLS[@]}"; do
+for b in "${ANDROID_BUILD_TOOLS[@]}"; do
   sdkmanager --install "build-tools;${b}" >/dev/null || true
 done
 
