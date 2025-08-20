@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../features/vibes/domain/vibe.dart';
 import '../../../features/vibes/domain/vibe_repository.dart';
 import '../api/vibe_api.dart';
+import '../api/mock_vibe_api.dart';
 import '../mappers/vibe_mapper.dart';
 
 /// Provider for the HTTP implementation of the VibeRepository
 final vibeRepositoryProvider = Provider<VibeRepository>((ref) {
-  final vibeApi = ref.watch(vibeApiProvider);
+  // Use mock API for development
+  final vibeApi = ref.watch(mockVibeApiProvider);
   return HttpVibeRepository(vibeApi);
 });
 

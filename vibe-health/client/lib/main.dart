@@ -7,6 +7,7 @@ import 'package:app_links/app_links.dart';
 
 import 'core/di/providers.dart';
 import 'core/notifications/notification_service.dart';
+import 'core/auth/auth_service.dart';
 import 'features/vibes/domain/vibe_type.dart';
 import 'features/vibes/presentation/screens/vibe_dashboard_screen.dart';
 import 'features/vibes/presentation/screens/vibe_entry_screen.dart';
@@ -68,6 +69,15 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     // Initialize notification service
     final notificationService = ref.read(notificationServiceProvider);
     await notificationService.initialize();
+    
+    // Initialize auth service
+    final authService = ref.read(authServiceProvider);
+    await authService.initialize();
+    
+    // For development purposes, set a mock token if not authenticated
+    if (!authService.isAuthenticated) {
+      await authService.setMockToken('dev-token-123');
+    }
 
     // Initialize app links handler
     _appLinks = AppLinks();

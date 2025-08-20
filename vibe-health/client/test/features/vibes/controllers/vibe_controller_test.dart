@@ -56,7 +56,7 @@ void main() {
       final controller = container.read(vibeControllerProvider.notifier);
       final state = container.read(vibeControllerProvider);
       
-      expect(state.isLoading, false);
+      expect(state.operation, VibeOperation.none);
       expect(state.vibes, isEmpty);
       expect(state.error, isNull);
     });
@@ -68,12 +68,18 @@ void main() {
         to: anyNamed('to'),
       )).thenAnswer((_) async => testVibes);
 
-      // Act
-      await container.read(vibeControllerProvider.notifier).loadVibes();
+      // Act - verify operation changes during loading
+      final future = container.read(vibeControllerProvider.notifier).loadVibes();
       
-      // Assert
+      // Should be in loading state while the future is in progress
+      expect(container.read(vibeControllerProvider).operation, VibeOperation.loading);
+      
+      // Wait for completion
+      await future;
+      
+      // Assert final state
       final state = container.read(vibeControllerProvider);
-      expect(state.isLoading, false);
+      expect(state.operation, VibeOperation.none);
       expect(state.vibes, testVibes);
       expect(state.error, isNull);
     });
@@ -91,7 +97,7 @@ void main() {
       
       // Assert
       final state = container.read(vibeControllerProvider);
-      expect(state.isLoading, false);
+      expect(state.operation, VibeOperation.none);
       expect(state.vibes, isEmpty);
       expect(state.error, testError);
     });
@@ -104,12 +110,18 @@ void main() {
         to: anyNamed('to'),
       )).thenAnswer((_) async => testVibes);
 
-      // Act
-      await container.read(vibeControllerProvider.notifier).createVibe(
+      // Act - verify operation changes during creation
+      final future = container.read(vibeControllerProvider.notifier).createVibe(
         VibeType.mood,
         4,
         note: 'Test note',
       );
+      
+      // Should be in creating state while the future is in progress
+      expect(container.read(vibeControllerProvider).operation, VibeOperation.creating);
+      
+      // Wait for completion
+      await future;
       
       // Assert
       verify(mockRepository.createVibe(any)).called(1);
@@ -119,7 +131,7 @@ void main() {
       )).called(1);
       
       final state = container.read(vibeControllerProvider);
-      expect(state.isLoading, false);
+      expect(state.operation, VibeOperation.none);
       expect(state.vibes, testVibes);
       expect(state.error, isNull);
     });
@@ -138,13 +150,19 @@ void main() {
       when(mockRepository.updateVibe(updatedVibe)).thenAnswer((_) async {});
 
       // Act
-      await container.read(vibeControllerProvider.notifier).updateVibe(updatedVibe);
+      final future = container.read(vibeControllerProvider.notifier).updateVibe(updatedVibe);
+      
+      // Should be in updating state while the future is in progress
+      expect(container.read(vibeControllerProvider).operation, VibeOperation.updating);
+      
+      // Wait for completion
+      await future;
       
       // Assert
       verify(mockRepository.updateVibe(updatedVibe)).called(1);
       
       final state = container.read(vibeControllerProvider);
-      expect(state.isLoading, false);
+      expect(state.operation, VibeOperation.none);
       expect(state.vibes.length, 2);
       
       final updatedVibeInState = state.vibes.firstWhere((v) => v.id == updatedVibe.id);
@@ -207,6 +225,122 @@ void main() {
       
       // Assert
       expect(container.read(vibeControllerProvider).error, isNull);
+    });
+    test('removeVibeFromState removes vibe from local state', () async {
+      // Arrange - load vibes first
+      when(mockRepository.listVibes(
+        from: anyNamed('from'),
+        to: anyNamed('to'),
+      )).thenAnswer((_) async => testVibes);
+      await container.read(vibeControllerProvider.notifier).loadVibes();
+      
+      // Verify we have 2 vibes initially
+      expect(container.read(vibeControllerProvider).vibes.length, 2);
+      
+      // Act
+      await container.read(vibeControllerProvider.notifier).removeVibeFromState('test-id-1');
+      
+      // Assert
+      final state = container.read(vibeControllerProvider);
+      expect(state.operation, VibeOperation.none);
+      expect(state.vibes.length, 1);
+      expect(state.vibes.first.id, 'test-id-2');
+    });
+    
+    test('retry reloads vibes when last operation was loading', () async {
+      // Arrange - simulate a failed load
+      final testError = VibeServerError(message: 'Server error');
+      when(mockRepository.listVibes(
+        from: anyNamed('from'),
+        to: anyNamed('to'),
+      )).thenThrow(testError);
+      await container.read(vibeControllerProvider.notifier).loadVibes();
+      
+      // Verify error state
+      expect(container.read(vibeControllerProvider).error, testError);
+      
+      // Change mock to succeed on retry
+      when(mockRepository.listVibes(
+        from: anyNamed('from'),
+        to: anyNamed('to'),
+      )).thenAnswer((_) async => testVibes);
+      
+      // Act - retry the operation
+      await container.read(vibeControllerProvider.notifier).retry();
+      
+      // Assert
+      final state = container.read(vibeControllerProvider);
+      expect(state.operation, VibeOperation.none);
+      expect(state.vibes, testVibes);
+      expect(state.error, isNull);
+    });
+    
+    test('retry recreates vibe when last operation was creating', () async {
+      // Arrange - simulate a failed create
+      final testError = VibeServerError(message: 'Server error');
+      when(mockRepository.createVibe(any)).thenThrow(testError);
+      
+      // Store the controller for direct access to lastOperation
+      final controller = container.read(vibeControllerProvider.notifier);
+      
+      await controller.createVibe(
+        VibeType.mood,
+        4,
+        note: 'Test note',
+      );
+      
+      // Verify error state
+      expect(container.read(vibeControllerProvider).error, testError);
+      
+      // Reset mock calls count
+      reset(mockRepository);
+      
+      // Change mock to succeed on retry
+      when(mockRepository.createVibe(any)).thenAnswer((_) async {});
+      when(mockRepository.listVibes(
+        from: anyNamed('from'),
+        to: anyNamed('to'),
+      )).thenAnswer((_) async => testVibes);
+      
+      // Act - retry the operation
+      await controller.retry();
+      
+      // Assert
+      final state = container.read(vibeControllerProvider);
+      expect(state.operation, VibeOperation.none);
+      expect(state.error, isNull);
+      
+      // Verify that createVibe was called during retry
+      verify(mockRepository.createVibe(any)).called(1);
+    });
+    
+    test('deleteVibe can be used in tests', () async {
+      // Arrange - load vibes first
+      when(mockRepository.listVibes(
+        from: anyNamed('from'),
+        to: anyNamed('to'),
+      )).thenAnswer((_) async => testVibes);
+      await container.read(vibeControllerProvider.notifier).loadVibes();
+      
+      // Setup mock for delete
+      when(mockRepository.deleteVibe('test-id-1')).thenAnswer((_) async {});
+      
+      // Act
+      final future = container.read(vibeControllerProvider.notifier).deleteVibe('test-id-1');
+      
+      // Should be in deleting state while the future is in progress
+      expect(container.read(vibeControllerProvider).operation, VibeOperation.deleting);
+      
+      // Wait for completion
+      await future;
+      
+      // Assert
+      verify(mockRepository.deleteVibe('test-id-1')).called(1);
+      
+      final state = container.read(vibeControllerProvider);
+      expect(state.operation, VibeOperation.none);
+      expect(state.vibes.length, 1);
+      expect(state.vibes.first.id, 'test-id-2');
     });
   });
 }

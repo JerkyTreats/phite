@@ -56,6 +56,7 @@ dependencies:
   intl: ^0.20.2
   json_annotation: ^4.8.1
   timezone: ^0.10.1
+  uuid: ^4.3.3
   
   # Deep linking (replace discontinued uni_links)
   app_links: ^6.3.2
